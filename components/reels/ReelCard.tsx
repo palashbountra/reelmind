@@ -1,11 +1,12 @@
 "use client";
 
 import Image from "next/image";
-import { Heart, ExternalLink, Sparkles, Calendar, MoreHorizontal, Check, Archive, Trash2 } from "lucide-react";
+import { Heart, Sparkles, Calendar, MoreHorizontal, Check, Archive, Trash2, ChevronRight, FolderOpen, Tag } from "lucide-react";
 import { useState } from "react";
 import type { Reel } from "@/lib/types";
 import { STATUS_CONFIG, formatDate, cn } from "@/lib/utils";
-import { getCategoryById } from "@/lib/categories";
+import { getCategoryById, getAllCategories } from "@/lib/categories";
+import { getAllProjects } from "@/lib/projects";
 import { Badge } from "@/components/ui/Badge";
 import { toggleFavourite, updateReel, deleteReel } from "@/lib/db/reels";
 import { useAppStore } from "@/lib/store";
@@ -22,10 +23,19 @@ interface ReelCardProps {
 export function ReelCard({ reel, onClick, selectMode, isSelected, onSelect }: ReelCardProps) {
   const { updateReel: storeUpdate, removeReel } = useAppStore();
   const [menuOpen, setMenuOpen] = useState(false);
+  const [subMenu, setSubMenu] = useState<"category" | "project" | null>(null);
   const [imgError, setImgError] = useState(false);
 
   const catConfig = getCategoryById(reel.category);
   const statusConfig = STATUS_CONFIG[reel.status];
+  const allCategories = getAllCategories();
+  const allProjects = getAllProjects();
+  const projectTags: string[] = reel.project_tags ?? [];
+
+  function closeMenu() {
+    setMenuOpen(false);
+    setSubMenu(null);
+  }
 
   async function handleFavourite(e: React.MouseEvent) {
     e.stopPropagation();
@@ -39,7 +49,7 @@ export function ReelCard({ reel, onClick, selectMode, isSelected, onSelect }: Re
 
   async function handleStatusChange(e: React.MouseEvent, status: Reel["status"]) {
     e.stopPropagation();
-    setMenuOpen(false);
+    closeMenu();
     try {
       await updateReel(reel.id, { status });
       storeUpdate(reel.id, { status });
@@ -49,9 +59,35 @@ export function ReelCard({ reel, onClick, selectMode, isSelected, onSelect }: Re
     }
   }
 
+  async function handleCategoryChange(categoryId: string) {
+    closeMenu();
+    if (categoryId === reel.category) return;
+    try {
+      await updateReel(reel.id, { category: categoryId });
+      storeUpdate(reel.id, { category: categoryId });
+      toast.success(`Moved to ${getCategoryById(categoryId).label}`);
+    } catch {
+      toast.error("Failed to move category");
+    }
+  }
+
+  async function handleProjectToggle(projectId: string) {
+    const current = new Set(projectTags);
+    current.has(projectId) ? current.delete(projectId) : current.add(projectId);
+    const next = Array.from(current);
+    try {
+      await updateReel(reel.id, { project_tags: next });
+      storeUpdate(reel.id, { project_tags: next });
+      const proj = allProjects.find((p) => p.id === projectId);
+      toast.success(current.has(projectId) ? `Added to ${proj?.label}` : `Removed from ${proj?.label}`);
+    } catch {
+      toast.error("Failed to update project");
+    }
+  }
+
   async function handleDelete(e: React.MouseEvent) {
     e.stopPropagation();
-    setMenuOpen(false);
+    closeMenu();
     if (!confirm("Delete this reel?")) return;
     try {
       await deleteReel(reel.id);
@@ -161,35 +197,98 @@ export function ReelCard({ reel, onClick, selectMode, isSelected, onSelect }: Re
           <h3 className="font-medium text-sm text-white leading-snug line-clamp-2 flex-1">
             {reel.title}
           </h3>
+
           {/* Context menu */}
-          <div className="relative shrink-0">
-            <button
-              onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
-              className="p-1 rounded-lg text-gray-600 hover:text-gray-300 hover:bg-surface-hover transition-all opacity-0 group-hover:opacity-100"
-            >
-              <MoreHorizontal size={14} />
-            </button>
-            {menuOpen && (
-              <div
-                className="absolute right-0 top-7 z-50 bg-surface-card border border-surface-border rounded-xl shadow-xl min-w-36 py-1"
-                onClick={(e) => e.stopPropagation()}
+          {!selectMode && (
+            <div className="relative shrink-0">
+              <button
+                onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); setSubMenu(null); }}
+                className="p-1 rounded-lg text-gray-600 hover:text-gray-300 hover:bg-surface-hover transition-all opacity-0 group-hover:opacity-100"
               >
-                <button onClick={(e) => handleStatusChange(e, "in_progress")} className="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-surface-hover flex items-center gap-2">
-                  🔵 Mark In Progress
-                </button>
-                <button onClick={(e) => handleStatusChange(e, "done")} className="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-surface-hover flex items-center gap-2">
-                  ✅ Mark Done
-                </button>
-                <button onClick={(e) => handleStatusChange(e, "archived")} className="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-surface-hover flex items-center gap-2">
-                  <Archive size={11} /> Archive
-                </button>
-                <div className="my-1 border-t border-surface-border" />
-                <button onClick={handleDelete} className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 flex items-center gap-2">
-                  <Trash2 size={11} /> Delete
-                </button>
-              </div>
-            )}
-          </div>
+                <MoreHorizontal size={14} />
+              </button>
+
+              {menuOpen && (
+                <div
+                  className="absolute right-0 top-7 z-50 bg-surface-card border border-surface-border rounded-xl shadow-xl w-48 py-1"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Status */}
+                  <button onClick={(e) => handleStatusChange(e, "in_progress")} className="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-surface-hover flex items-center gap-2">
+                    🔵 Mark In Progress
+                  </button>
+                  <button onClick={(e) => handleStatusChange(e, "done")} className="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-surface-hover flex items-center gap-2">
+                    ✅ Mark Done
+                  </button>
+                  <button onClick={(e) => handleStatusChange(e, "archived")} className="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-surface-hover flex items-center gap-2">
+                    <Archive size={11} /> Archive
+                  </button>
+
+                  <div className="my-1 border-t border-surface-border" />
+
+                  {/* Move to Category */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setSubMenu(subMenu === "category" ? null : "category"); }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-surface-hover flex items-center justify-between"
+                  >
+                    <span className="flex items-center gap-2">
+                      <Tag size={11} /> Move to Category
+                    </span>
+                    <ChevronRight size={11} className={cn("transition-transform", subMenu === "category" && "rotate-90")} />
+                  </button>
+
+                  {subMenu === "category" && (
+                    <div className="max-h-36 overflow-y-auto border-t border-surface-border bg-surface-hover">
+                      {allCategories.map((cat) => (
+                        <button
+                          key={cat.id}
+                          onClick={(e) => { e.stopPropagation(); handleCategoryChange(cat.id); }}
+                          className="w-full text-left px-4 py-1.5 text-xs text-gray-300 hover:bg-surface-card flex items-center justify-between"
+                        >
+                          <span>{cat.emoji} {cat.label}</span>
+                          {reel.category === cat.id && <Check size={10} className="text-brand-400" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Assign to Project */}
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setSubMenu(subMenu === "project" ? null : "project"); }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-gray-300 hover:bg-surface-hover flex items-center justify-between"
+                  >
+                    <span className="flex items-center gap-2">
+                      <FolderOpen size={11} /> Assign to Project
+                    </span>
+                    <ChevronRight size={11} className={cn("transition-transform", subMenu === "project" && "rotate-90")} />
+                  </button>
+
+                  {subMenu === "project" && (
+                    <div className="max-h-36 overflow-y-auto border-t border-surface-border bg-surface-hover">
+                      {allProjects.map((proj) => {
+                        const assigned = projectTags.includes(proj.id);
+                        return (
+                          <button
+                            key={proj.id}
+                            onClick={(e) => { e.stopPropagation(); handleProjectToggle(proj.id); }}
+                            className="w-full text-left px-4 py-1.5 text-xs text-gray-300 hover:bg-surface-card flex items-center justify-between"
+                          >
+                            <span>{proj.emoji} {proj.label}</span>
+                            {assigned && <Check size={10} className="text-brand-400" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  <div className="my-1 border-t border-surface-border" />
+                  <button onClick={handleDelete} className="w-full text-left px-3 py-1.5 text-xs text-red-400 hover:bg-red-500/10 flex items-center gap-2">
+                    <Trash2 size={11} /> Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Status + date */}
@@ -203,9 +302,26 @@ export function ReelCard({ reel, onClick, selectMode, isSelected, onSelect }: Re
           </span>
         </div>
 
+        {/* Project tags */}
+        {projectTags.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-2">
+            {projectTags.slice(0, 2).map((pid) => {
+              const proj = allProjects.find((p) => p.id === pid);
+              return proj ? (
+                <span key={pid} className={cn("text-xs px-1.5 py-0.5 rounded-md border", proj.color)}>
+                  {proj.emoji} {proj.label}
+                </span>
+              ) : null;
+            })}
+            {projectTags.length > 2 && (
+              <span className="text-xs text-gray-600">+{projectTags.length - 2}</span>
+            )}
+          </div>
+        )}
+
         {/* Tags */}
         {reel.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-2">
+          <div className="flex flex-wrap gap-1 mt-1">
             {reel.tags.slice(0, 3).map((tag) => (
               <span key={tag} className="text-xs text-gray-600 px-1.5 py-0.5 bg-surface-hover rounded-md">
                 #{tag}
