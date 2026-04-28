@@ -89,7 +89,7 @@ export function BulkImportModal() {
     if (invalid.length > 0) {
       setUrlError(`${valid.length} valid URLs found. ${invalid.length} skipped (not Instagram reel URLs).`);
     }
-    setParsedUrls([...new Set(valid)]); // deduplicate
+    setParsedUrls(Array.from(new Set(valid))); // deduplicate
   }
 
   // ── Parse Instagram JSON export ────────────────────────────────────────────
@@ -106,7 +106,7 @@ export function BulkImportModal() {
         // Try to extract all Instagram URLs from the JSON regardless of structure
         const urlMatches = text.match(/https?:\/\/(www\.)?instagram\.com\/[^\s"'\\]+/g) ?? [];
         const valid = urlMatches.filter((u) => isValidInstagramUrl(u));
-        const unique = [...new Set(valid)];
+        const unique = Array.from(new Set(valid));
 
         if (unique.length === 0) {
           toast.error("No Instagram reel URLs found in this file. Make sure you exported saved posts from Instagram.");

@@ -1,9 +1,15 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { createClient } from "@/lib/supabase/client";
 import type { Reel, ReelFilters } from "@/lib/types";
 
+// Helper — cast the table to any so Supabase's strict generated types don't
+// block us (we have no generated schema file, so the table resolves to never).
+function reelsTable() {
+  return createClient().from("reels") as any;
+}
+
 export async function getReels(filters?: ReelFilters): Promise<Reel[]> {
-  const supabase = createClient();
-  let query = supabase.from("reels").select("*");
+  let query = reelsTable().select("*");
 
   if (filters?.category && filters.category !== "all") {
     query = query.eq("category", filters.category);
@@ -40,9 +46,7 @@ export async function getReels(filters?: ReelFilters): Promise<Reel[]> {
 }
 
 export async function getReelById(id: string): Promise<Reel | null> {
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("reels")
+  const { data, error } = await reelsTable()
     .select("*")
     .eq("id", id)
     .single();
@@ -51,9 +55,7 @@ export async function getReelById(id: string): Promise<Reel | null> {
 }
 
 export async function getReelsByProject(projectId: string): Promise<Reel[]> {
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("reels")
+  const { data, error } = await reelsTable()
     .select("*")
     .contains("project_tags", [projectId])
     .order("created_at", { ascending: false });
@@ -64,14 +66,8 @@ export async function getReelsByProject(projectId: string): Promise<Reel[]> {
 export async function createReel(
   reel: Omit<Reel, "id" | "created_at" | "updated_at" | "user_id">
 ): Promise<Reel> {
-  const supabase = createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { data, error } = await supabase
-    .from("reels")
-    .insert({ ...reel, user_id: user?.id ?? "anonymous" })
+  const { data, error } = await reelsTable()
+    .insert(reel)
     .select()
     .single();
   if (error) throw error;
@@ -82,9 +78,7 @@ export async function updateReel(
   id: string,
   updates: Partial<Reel>
 ): Promise<Reel> {
-  const supabase = createClient();
-  const { data, error } = await supabase
-    .from("reels")
+  const { data, error } = await reelsTable()
     .update({ ...updates, updated_at: new Date().toISOString() })
     .eq("id", id)
     .select()
@@ -94,8 +88,7 @@ export async function updateReel(
 }
 
 export async function deleteReel(id: string): Promise<void> {
-  const supabase = createClient();
-  const { error } = await supabase.from("reels").delete().eq("id", id);
+  const { error } = await reelsTable().delete().eq("id", id);
   if (error) throw error;
 }
 
@@ -103,9 +96,7 @@ export async function toggleFavourite(
   id: string,
   current: boolean
 ): Promise<void> {
-  const supabase = createClient();
-  const { error } = await supabase
-    .from("reels")
+  const { error } = await reelsTable()
     .update({ is_favourite: !current, updated_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
