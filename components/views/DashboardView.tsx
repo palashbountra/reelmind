@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Search, SlidersHorizontal, Grid3X3, List, Plus, Inbox } from "lucide-react";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { Search, Grid3X3, List, Plus, CheckSquare, X, Trash2 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
-import { getReels } from "@/lib/db/reels";
+import { getReels, deleteReel as dbDeleteReel } from "@/lib/db/reels";
 import { ReelCard } from "@/components/reels/ReelCard";
 import { ReelDetailPanel } from "@/components/reels/ReelDetailPanel";
 import { STATUS_CONFIG, cn } from "@/lib/utils";
 import { getCategoryById } from "@/lib/categories";
 import type { ReelStatus } from "@/lib/types";
+import toast from "react-hot-toast";
 
 export function DashboardView() {
   const {
@@ -16,10 +17,43 @@ export function DashboardView() {
     filters, setFilters,
     selectedReelId, setSelectedReelId,
     setAddReelOpen,
+    removeReel,
   } = useAppStore();
 
   const [loading, setLoading] = useState(true);
   const [gridMode, setGridMode] = useState<"grid" | "list">("grid");
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [deleting, setDeleting] = useState(false);
+
+  const toggleId = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelectedIds(new Set());
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return;
+    if (!confirm(`Delete ${selectedIds.size} reel${selectedIds.size !== 1 ? "s" : ""}? This can't be undone.`)) return;
+    setDeleting(true);
+    try {
+      await Promise.all(Array.from(selectedIds).map((id) => dbDeleteReel(id)));
+      Array.from(selectedIds).forEach((id) => removeReel(id));
+      toast.success(`Deleted ${selectedIds.size} reel${selectedIds.size !== 1 ? "s" : ""}`);
+      exitSelectMode();
+    } catch {
+      toast.error("Failed to delete some reels");
+    } finally {
+      setDeleting(false);
+    }
+  }
 
   useEffect(() => {
     setLoading(true);
@@ -87,14 +121,18 @@ export function DashboardView() {
   return (
     <div className="flex h-full overflow-hidden">
       {/* Main content */}
-      <div className={cn("flex-1 flex flex-col overflow-hidden", selectedReel && "hidden md:flex")}>
+      <div className={cn("flex-1 flex flex-col overflow-hidden relative", selectedReel && "hidden md:flex")}>
         {/* Header */}
         <div className="px-6 pt-6 pb-4 border-b border-surface-border space-y-4">
           {/* Title row */}
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-xl font-bold text-white">
-                {filters.favourites
+                {selectMode
+                  ? selectedIds.size > 0
+                    ? `${selectedIds.size} selected`
+                    : "Select reels"
+                  : filters.favourites
                   ? "⭐ Favourites"
                   : filters.category && filters.category !== "all"
                   ? `${getCategoryById(filters.category).emoji} ${getCategoryById(filters.category).label}`
@@ -103,16 +141,36 @@ export function DashboardView() {
                   : "All Reels"}
               </h1>
               <p className="text-xs text-gray-500 mt-0.5">
-                {filtered.length} reel{filtered.length !== 1 ? "s" : ""}
-                {filters.search && ` matching "${filters.search}"`}
+                {selectMode
+                  ? "Tap reels to select"
+                  : `${filtered.length} reel${filtered.length !== 1 ? "s" : ""}${filters.search ? ` matching "${filters.search}"` : ""}`}
               </p>
             </div>
-            <button
-              onClick={() => setAddReelOpen(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-brand-500 to-violet-600 text-white text-sm font-medium rounded-xl hover:from-brand-400 hover:to-violet-500 transition-all shadow-lg shadow-brand-500/20"
-            >
-              <Plus size={15} /> Add Reel
-            </button>
+            <div className="flex items-center gap-2">
+              {selectMode ? (
+                <button
+                  onClick={exitSelectMode}
+                  className="flex items-center gap-2 px-4 py-2 bg-surface-hover border border-surface-border text-white text-sm font-medium rounded-xl hover:bg-surface-card transition-all"
+                >
+                  <X size={14} /> Cancel
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={() => { setSelectMode(true); setSelectedReelId(null); }}
+                    className="flex items-center gap-2 px-3 py-2 bg-surface-hover border border-surface-border text-gray-400 text-sm font-medium rounded-xl hover:text-white hover:border-brand-500/40 transition-all"
+                  >
+                    <CheckSquare size={14} /> Select
+                  </button>
+                  <button
+                    onClick={() => setAddReelOpen(true)}
+                    className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-brand-500 to-violet-600 text-white text-sm font-medium rounded-xl hover:from-brand-400 hover:to-violet-500 transition-all shadow-lg shadow-brand-500/20"
+                  >
+                    <Plus size={15} /> Add Reel
+                  </button>
+                </>
+              )}
+            </div>
           </div>
 
           {/* Stats row */}
@@ -212,19 +270,40 @@ export function DashboardView() {
                     key={reel.id}
                     reel={reel}
                     onClick={() => setSelectedReelId(reel.id)}
+                    selectMode={selectMode}
+                    isSelected={selectedIds.has(reel.id)}
+                    onSelect={() => toggleId(reel.id)}
                   />
                 ) : (
                   <ReelListRow
                     key={reel.id}
                     reel={reel}
-                    onClick={() => setSelectedReelId(reel.id)}
-                    isSelected={selectedReelId === reel.id}
+                    onClick={selectMode ? () => toggleId(reel.id) : () => setSelectedReelId(reel.id)}
+                    isSelected={selectMode ? selectedIds.has(reel.id) : selectedReelId === reel.id}
                   />
                 )
               ))}
             </div>
           )}
         </div>
+        {/* Bulk delete bottom bar */}
+        {selectMode && selectedIds.size > 0 && (
+          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 animate-fade-in">
+            <div className="flex items-center gap-3 px-5 py-3 bg-surface-card border border-surface-border rounded-2xl shadow-2xl shadow-black/50 backdrop-blur-md">
+              <span className="text-sm text-white font-medium">
+                {selectedIds.size} reel{selectedIds.size !== 1 ? "s" : ""} selected
+              </span>
+              <button
+                onClick={handleBulkDelete}
+                disabled={deleting}
+                className="flex items-center gap-2 px-4 py-1.5 bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-400 text-sm font-medium rounded-xl transition-all disabled:opacity-50"
+              >
+                <Trash2 size={13} />
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Detail panel */}

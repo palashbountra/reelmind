@@ -14,9 +14,12 @@ import toast from "react-hot-toast";
 interface ReelCardProps {
   reel: Reel;
   onClick: () => void;
+  selectMode?: boolean;
+  isSelected?: boolean;
+  onSelect?: () => void;
 }
 
-export function ReelCard({ reel, onClick }: ReelCardProps) {
+export function ReelCard({ reel, onClick, selectMode, isSelected, onSelect }: ReelCardProps) {
   const { updateReel: storeUpdate, removeReel } = useAppStore();
   const [menuOpen, setMenuOpen] = useState(false);
   const [imgError, setImgError] = useState(false);
@@ -61,11 +64,16 @@ export function ReelCard({ reel, onClick }: ReelCardProps) {
 
   return (
     <div
-      onClick={onClick}
+      onClick={selectMode ? onSelect : onClick}
       className={cn(
-        "reel-card group relative bg-surface-card border border-surface-border rounded-2xl overflow-hidden",
-        "cursor-pointer transition-all duration-200 hover:border-brand-500/30 animate-fade-in",
-        reel.status === "done" && "opacity-70"
+        "reel-card group relative bg-surface-card border rounded-2xl overflow-hidden",
+        "cursor-pointer transition-all duration-200 animate-fade-in",
+        selectMode && isSelected
+          ? "border-brand-500 ring-2 ring-brand-500/40"
+          : selectMode
+          ? "border-surface-border hover:border-brand-500/50"
+          : "border-surface-border hover:border-brand-500/30",
+        reel.status === "done" && !selectMode && "opacity-70"
       )}
     >
       {/* Thumbnail */}
@@ -119,12 +127,31 @@ export function ReelCard({ reel, onClick }: ReelCardProps) {
         )}
 
         {/* Done check */}
-        {reel.status === "done" && (
+        {reel.status === "done" && !selectMode && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/40">
             <div className="w-12 h-12 rounded-full bg-green-500/30 border-2 border-green-400 flex items-center justify-center">
               <Check size={24} className="text-green-400" />
             </div>
           </div>
+        )}
+
+        {/* Select mode checkmark */}
+        {selectMode && (
+          <div className="absolute inset-0 flex items-start justify-start p-2">
+            <div className={cn(
+              "w-6 h-6 rounded-full border-2 flex items-center justify-center transition-all",
+              isSelected
+                ? "bg-brand-500 border-brand-500"
+                : "bg-black/40 border-white/60 backdrop-blur-sm"
+            )}>
+              {isSelected && <Check size={13} className="text-white" strokeWidth={3} />}
+            </div>
+          </div>
+        )}
+
+        {/* Select mode dim overlay */}
+        {selectMode && !isSelected && (
+          <div className="absolute inset-0 bg-black/20" />
         )}
       </div>
 
