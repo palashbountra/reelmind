@@ -209,6 +209,7 @@ export function BulkImportModal() {
           category: ai_category,
           tags: ai_tags,
           project_tags: selectedProjects,
+          extra_categories: [],
           status: "unread",
           notes: null,
           ai_summary,

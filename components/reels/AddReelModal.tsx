@@ -128,6 +128,7 @@ export function AddReelModal() {
         category,
         tags: analysis?.tags ?? [],
         project_tags: selectedProjects,
+        extra_categories: [],
         status: "unread",
         notes: notes || null,
         ai_summary: analysis?.summary ?? null,
