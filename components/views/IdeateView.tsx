@@ -1,16 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   Sparkles, Send, Lightbulb, RefreshCw, Copy, Check,
-  ChevronDown, ChevronUp, Loader2
+  Loader2, CheckSquare, FolderOpen, ChevronDown, ChevronUp,
+  MessageSquare, Trash2,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { getCategoryById } from "@/lib/categories";
-import { Button } from "@/components/ui/Button";
-import { Badge } from "@/components/ui/Badge";
+import { getAllProjects, setProjectPlan, getProjectPlan } from "@/lib/projects";
 import type { Reel } from "@/lib/types";
+import type { Project } from "@/lib/projects";
 import toast from "react-hot-toast";
 
 const PROMPT_SUGGESTIONS = [
@@ -22,19 +23,31 @@ const PROMPT_SUGGESTIONS = [
   "Summarise the top 3 ideas I should act on immediately",
 ];
 
+interface Message {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  reelCount?: number;
+  prompt?: string;
+}
+
 export function IdeateView() {
-  const { reels } = useAppStore();
+  const { reels, setActiveView, setPendingTaskTitle } = useAppStore();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [prompt, setPrompt] = useState("");
-  const [result, setResult] = useState("");
+  const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [expandSelector, setExpandSelector] = useState(true);
+  const [selectorOpen, setSelectorOpen] = useState(true);
+  const [saveToProjectOpen, setSaveToProjectOpen] = useState<string | null>(null); // message id
+  const [projects] = useState<Project[]>(getAllProjects);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Only show reels with content (title + at least description or summary)
-  const reelsWithContent = reels.filter(
-    (r) => r.status !== "archived"
-  );
+  const reelsWithContent = reels.filter((r) => r.status !== "archived");
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, loading]);
 
   function toggleReel(id: string) {
     setSelectedIds((prev) => {
@@ -45,23 +58,23 @@ export function IdeateView() {
     });
   }
 
-  function selectAll() {
-    setSelectedIds(new Set(reelsWithContent.map((r) => r.id)));
-  }
-
-  function selectNone() {
-    setSelectedIds(new Set());
-  }
+  function selectAll() { setSelectedIds(new Set(reelsWithContent.map((r) => r.id))); }
+  function selectNone() { setSelectedIds(new Set()); }
 
   async function handleIdeate() {
-    if (selectedIds.size === 0) {
-      toast.error("Select at least one reel first");
-      return;
-    }
-    if (!prompt.trim()) {
-      toast.error("Enter a prompt or question");
-      return;
-    }
+    if (selectedIds.size === 0) { toast.error("Select at least one reel first"); return; }
+    if (!prompt.trim()) { toast.error("Enter a prompt or question"); return; }
+
+    const userMsg: Message = {
+      id: `u-${Date.now()}`,
+      role: "user",
+      content: prompt.trim(),
+      reelCount: selectedIds.size,
+    };
+
+    setMessages((prev) => [...prev, userMsg]);
+    setPrompt("");
+    setLoading(true);
 
     const selectedReels = reelsWithContent
       .filter((r) => selectedIds.has(r.id))
@@ -71,14 +84,11 @@ export function IdeateView() {
         summary: r.ai_summary || "",
       }));
 
-    setLoading(true);
-    setResult("");
-
     try {
       const res = await fetch("/api/ideate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reels: selectedReels, prompt }),
+        body: JSON.stringify({ reels: selectedReels, prompt: prompt.trim() }),
       });
 
       if (!res.ok) {
@@ -87,7 +97,14 @@ export function IdeateView() {
       }
 
       const data = await res.json();
-      setResult(data.ideas);
+      const assistantMsg: Message = {
+        id: `a-${Date.now()}`,
+        role: "assistant",
+        content: data.ideas,
+        reelCount: selectedIds.size,
+        prompt: userMsg.content,
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Ideation failed";
       if (msg.includes("GROQ_API_KEY")) {
@@ -95,205 +112,312 @@ export function IdeateView() {
       } else {
         toast.error(msg);
       }
+      // Remove the user message if we failed
+      setMessages((prev) => prev.filter((m) => m.id !== userMsg.id));
     } finally {
       setLoading(false);
+      textareaRef.current?.focus();
     }
   }
 
-  async function handleCopy() {
-    await navigator.clipboard.writeText(result);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  function handleCreateTask(content: string) {
+    // Extract first sentence / bullet as a task title
+    const firstLine = content.split("\n").find((l) => l.trim());
+    const taskTitle = firstLine
+      ?.replace(/^[#\-•\d.]+\s*/, "")
+      .slice(0, 80) ?? "Task from Ideate";
+    setPendingTaskTitle(taskTitle);
+    setActiveView("tasks");
+    toast.success("Switched to Tasks — title pre-filled!");
+  }
+
+  function handleSaveToProject(messageId: string, projectId: string, content: string) {
+    const existing = getProjectPlan(projectId);
+    const separator = existing ? "\n\n---\n\n" : "";
+    const timestamp = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    const note = `${separator}### Ideate — ${timestamp}\n\n${content}`;
+    setProjectPlan(projectId, existing + note);
+    toast.success(`Saved to ${projects.find((p) => p.id === projectId)?.label ?? "project"}`);
+    setSaveToProjectOpen(null);
+  }
+
+  async function handleCopy(content: string) {
+    await navigator.clipboard.writeText(content);
     toast.success("Copied to clipboard");
+  }
+
+  function clearHistory() {
+    if (!confirm("Clear conversation history?")) return;
+    setMessages([]);
   }
 
   return (
     <div className="flex h-full overflow-hidden">
       {/* Left: reel selector */}
       <div className="w-72 shrink-0 border-r border-surface-border flex flex-col">
-        <div className="px-4 py-4 border-b border-surface-border">
-          <h2 className="font-semibold text-white text-sm flex items-center gap-2">
-            <Lightbulb size={16} className="text-brand-400" />
-            Select Reels
-          </h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            {selectedIds.size} of {reelsWithContent.length} selected
-          </p>
-          <div className="flex gap-2 mt-2">
-            <button onClick={selectAll} className="text-xs text-brand-400 hover:text-brand-300">All</button>
-            <span className="text-gray-700">·</span>
-            <button onClick={selectNone} className="text-xs text-gray-500 hover:text-gray-300">None</button>
-          </div>
-        </div>
-
-        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1.5">
-          {reelsWithContent.length === 0 ? (
-            <p className="text-xs text-gray-600 text-center py-8">
-              No reels saved yet. Add some from the Dashboard.
-            </p>
-          ) : (
-            reelsWithContent.map((reel) => (
-              <ReelSelectCard
-                key={reel.id}
-                reel={reel}
-                selected={selectedIds.has(reel.id)}
-                onToggle={() => toggleReel(reel.id)}
-              />
-            ))
+        <div className="px-4 py-3 border-b border-surface-border">
+          <button
+            onClick={() => setSelectorOpen((v) => !v)}
+            className="w-full flex items-center justify-between"
+          >
+            <h2 className="font-semibold text-white text-sm flex items-center gap-2">
+              <Lightbulb size={16} className="text-brand-400" />
+              Select Reels
+            </h2>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-gray-500">{selectedIds.size}/{reelsWithContent.length}</span>
+              {selectorOpen ? <ChevronUp size={13} className="text-gray-500" /> : <ChevronDown size={13} className="text-gray-500" />}
+            </div>
+          </button>
+          {selectorOpen && (
+            <div className="flex gap-2 mt-1.5">
+              <button onClick={selectAll} className="text-xs text-brand-400 hover:text-brand-300">All</button>
+              <span className="text-gray-700">·</span>
+              <button onClick={selectNone} className="text-xs text-gray-500 hover:text-gray-300">None</button>
+            </div>
           )}
         </div>
+
+        {selectorOpen && (
+          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1.5">
+            {reelsWithContent.length === 0 ? (
+              <p className="text-xs text-gray-600 text-center py-8">
+                No reels saved yet. Add some from the Dashboard.
+              </p>
+            ) : (
+              reelsWithContent.map((reel) => (
+                <ReelSelectCard
+                  key={reel.id}
+                  reel={reel}
+                  selected={selectedIds.has(reel.id)}
+                  onToggle={() => toggleReel(reel.id)}
+                />
+              ))
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Right: ideation workspace */}
+      {/* Right: chat workspace */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="px-6 py-5 border-b border-surface-border">
-          <h1 className="text-xl font-bold text-white flex items-center gap-2">
-            <span className="gradient-text">Ideate</span>
-            <Sparkles size={18} className="text-brand-400" />
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Select reels on the left, then ask AI to synthesise ideas, patterns, and action plans.
-          </p>
+        <div className="px-6 py-4 border-b border-surface-border flex items-center justify-between">
+          <div>
+            <h1 className="text-lg font-bold text-white flex items-center gap-2">
+              <span className="gradient-text">Ideate</span>
+              <Sparkles size={16} className="text-brand-400" />
+            </h1>
+            <p className="text-xs text-gray-500 mt-0.5">
+              AI thinking partner — {selectedIds.size} reel{selectedIds.size !== 1 ? "s" : ""} in context
+            </p>
+          </div>
+          {messages.length > 0 && (
+            <button
+              onClick={clearHistory}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs text-gray-600 hover:text-red-400 hover:bg-red-500/10 border border-surface-border transition-all"
+            >
+              <Trash2 size={12} /> Clear
+            </button>
+          )}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-5">
-          {/* Prompt suggestions */}
-          <div>
-            <p className="text-xs text-gray-500 font-medium mb-2">💡 Try asking...</p>
-            <div className="flex flex-wrap gap-2">
-              {PROMPT_SUGGESTIONS.map((s) => (
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
+          {/* Empty state */}
+          {messages.length === 0 && !loading && (
+            <div className="flex flex-col items-center justify-center py-10 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-500/20 to-violet-500/20 border border-brand-500/20 flex items-center justify-center text-3xl mb-4">
+                🧠
+              </div>
+              <h3 className="font-semibold text-white mb-2">Your AI thinking partner</h3>
+              <p className="text-sm text-gray-500 max-w-sm mb-6">
+                Select reels from the left, then ask AI to connect the dots, generate ideas, or build action plans.
+              </p>
+              {/* Prompt suggestions */}
+              <div className="flex flex-wrap gap-2 justify-center max-w-md">
+                {PROMPT_SUGGESTIONS.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setPrompt(s)}
+                    className="text-xs px-3 py-1.5 rounded-full border border-surface-border text-gray-500 hover:text-gray-300 hover:border-gray-600 transition-all text-left"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Conversation */}
+          {messages.map((msg) => (
+            <div key={msg.id} className={cn("flex", msg.role === "user" ? "justify-end" : "justify-start")}>
+              {msg.role === "user" ? (
+                <div className="max-w-[85%] bg-brand-500/15 border border-brand-500/25 rounded-2xl rounded-tr-sm px-4 py-3">
+                  <p className="text-sm text-white leading-relaxed">{msg.content}</p>
+                  <p className="text-xs text-brand-400/60 mt-1">
+                    {msg.reelCount} reel{msg.reelCount !== 1 ? "s" : ""} as context
+                  </p>
+                </div>
+              ) : (
+                <div className="max-w-[92%] bg-surface-card border border-surface-border rounded-2xl rounded-tl-sm overflow-hidden">
+                  {/* AI message header */}
+                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-surface-border bg-brand-500/5">
+                    <div className="flex items-center gap-2">
+                      <Sparkles size={12} className="text-brand-400" />
+                      <span className="text-xs text-gray-400">AI · {msg.reelCount} reel{msg.reelCount !== 1 ? "s" : ""}</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      {/* Save to project */}
+                      <div className="relative">
+                        <button
+                          onClick={() => setSaveToProjectOpen(saveToProjectOpen === msg.id ? null : msg.id)}
+                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-gray-500 hover:text-violet-300 hover:bg-violet-500/10 transition-all"
+                          title="Save to project"
+                        >
+                          <FolderOpen size={12} />
+                          <span className="hidden sm:inline">Save</span>
+                        </button>
+                        {saveToProjectOpen === msg.id && (
+                          <div className="absolute right-0 top-full mt-1 w-52 bg-surface-card border border-surface-border rounded-xl shadow-xl z-20 overflow-hidden">
+                            <p className="text-xs text-gray-500 px-3 py-2 border-b border-surface-border">Save to project plan:</p>
+                            {projects.length === 0 ? (
+                              <p className="text-xs text-gray-600 px-3 py-2">No projects yet. Add one in Projects.</p>
+                            ) : (
+                              projects.map((p) => (
+                                <button
+                                  key={p.id}
+                                  onClick={() => handleSaveToProject(msg.id, p.id, msg.content)}
+                                  className="w-full text-left px-3 py-2 text-sm text-gray-300 hover:bg-surface-hover hover:text-white transition-all flex items-center gap-2"
+                                >
+                                  <span>{p.emoji}</span>
+                                  <span className="truncate">{p.label}</span>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      {/* Create task */}
+                      <button
+                        onClick={() => handleCreateTask(msg.content)}
+                        className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-gray-500 hover:text-green-300 hover:bg-green-500/10 transition-all"
+                        title="Create a task from this response"
+                      >
+                        <CheckSquare size={12} />
+                        <span className="hidden sm:inline">Task</span>
+                      </button>
+                      {/* Copy */}
+                      <button
+                        onClick={() => handleCopy(msg.content)}
+                        className="p-1 rounded-lg text-gray-600 hover:text-gray-300 hover:bg-surface-hover transition-all"
+                        title="Copy"
+                      >
+                        <Copy size={12} />
+                      </button>
+                    </div>
+                  </div>
+                  {/* Message content */}
+                  <div className="px-4 py-3">
+                    <MarkdownContent content={msg.content} />
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+
+          {/* Loading bubble */}
+          {loading && (
+            <div className="flex justify-start">
+              <div className="bg-surface-card border border-surface-border rounded-2xl rounded-tl-sm px-4 py-3 flex items-center gap-2.5">
+                <Loader2 size={14} className="animate-spin text-brand-400" />
+                <span className="text-sm text-gray-400">
+                  Thinking across {selectedIds.size} reel{selectedIds.size !== 1 ? "s" : ""}…
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input area */}
+        <div className="px-6 py-4 border-t border-surface-border">
+          {/* Prompt suggestions (compact, only show when there are messages) */}
+          {messages.length > 0 && (
+            <div className="flex gap-1.5 flex-wrap mb-3">
+              {PROMPT_SUGGESTIONS.slice(0, 3).map((s) => (
                 <button
                   key={s}
                   onClick={() => setPrompt(s)}
-                  className={cn(
-                    "text-xs px-3 py-1.5 rounded-full border transition-all text-left",
-                    prompt === s
-                      ? "border-brand-500/50 bg-brand-500/10 text-brand-300"
-                      : "border-surface-border text-gray-500 hover:text-gray-300 hover:border-gray-600"
-                  )}
+                  className="text-xs px-2.5 py-1 rounded-full border border-surface-border text-gray-600 hover:text-gray-300 hover:border-gray-600 transition-all"
                 >
-                  {s}
+                  {s.slice(0, 40)}…
                 </button>
               ))}
             </div>
-          </div>
+          )}
 
-          {/* Prompt input */}
-          <div className="space-y-2">
-            <label className="text-xs text-gray-500 font-medium">Your question or prompt</label>
-            <div className="relative">
+          <div className="flex gap-2 items-end">
+            <div className="flex-1 relative">
               <textarea
+                ref={textareaRef}
                 value={prompt}
                 onChange={(e) => setPrompt(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleIdeate();
                 }}
-                placeholder="Ask anything about your saved reels..."
-                rows={3}
-                className="w-full px-4 py-3 bg-surface-hover border border-surface-border rounded-xl text-sm text-white placeholder:text-gray-600 outline-none focus:border-brand-500/40 transition-all resize-none"
+                placeholder={
+                  selectedIds.size === 0
+                    ? "Select reels on the left first…"
+                    : "Ask anything about your saved reels…"
+                }
+                rows={2}
+                className="w-full px-4 py-3 bg-surface-hover border border-surface-border rounded-2xl text-sm text-white placeholder:text-gray-600 outline-none focus:border-brand-500/40 transition-all resize-none pr-16"
               />
-              <div className="absolute bottom-2.5 right-3 text-xs text-gray-700">
-                ⌘↵ to send
-              </div>
+              <div className="absolute bottom-2.5 right-3 text-xs text-gray-700">⌘↵</div>
             </div>
-            <Button
-              variant="primary"
+            <button
               onClick={handleIdeate}
-              loading={loading}
-              disabled={selectedIds.size === 0 || !prompt.trim()}
-              className="w-full"
+              disabled={loading || selectedIds.size === 0 || !prompt.trim()}
+              className="p-3 bg-gradient-to-r from-brand-500 to-violet-600 text-white rounded-2xl hover:from-brand-400 hover:to-violet-500 transition-all shadow-lg shadow-brand-500/20 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
             >
-              <Sparkles size={14} />
-              {loading ? "Thinking..." : "Generate Ideas"}
-              {!loading && <Send size={13} />}
-            </Button>
+              {loading ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}
+            </button>
           </div>
-
-          {/* Result */}
-          {loading && (
-            <div className="flex items-center justify-center py-12 gap-3 text-gray-500">
-              <Loader2 size={20} className="animate-spin text-brand-400" />
-              <span className="text-sm">AI is synthesising ideas from your {selectedIds.size} selected reels...</span>
-            </div>
-          )}
-
-          {result && !loading && (
-            <div className="bg-surface-card border border-surface-border rounded-2xl overflow-hidden animate-fade-in">
-              {/* Result header */}
-              <div className="flex items-center justify-between px-4 py-3 border-b border-surface-border bg-brand-500/5">
-                <div className="flex items-center gap-2">
-                  <Sparkles size={14} className="text-brand-400" />
-                  <span className="text-sm font-medium text-white">AI Response</span>
-                  <span className="text-xs text-gray-600">
-                    based on {selectedIds.size} reel{selectedIds.size !== 1 ? "s" : ""}
-                  </span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => { setResult(""); setPrompt(""); }}
-                    className="p-1.5 rounded-lg text-gray-600 hover:text-gray-300 hover:bg-surface-hover transition-all"
-                    title="Clear"
-                  >
-                    <RefreshCw size={13} />
-                  </button>
-                  <button
-                    onClick={handleCopy}
-                    className="p-1.5 rounded-lg text-gray-600 hover:text-gray-300 hover:bg-surface-hover transition-all"
-                    title="Copy"
-                  >
-                    {copied ? <Check size={13} className="text-green-400" /> : <Copy size={13} />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Result content */}
-              <div className="px-4 py-4">
-                <div className="prose prose-sm prose-invert max-w-none">
-                  {result.split("\n").map((line, i) => {
-                    if (!line.trim()) return <div key={i} className="h-2" />;
-                    if (line.startsWith("# ")) return <h3 key={i} className="text-base font-bold text-white mt-3 mb-1">{line.slice(2)}</h3>;
-                    if (line.startsWith("## ")) return <h4 key={i} className="text-sm font-semibold text-gray-200 mt-2 mb-1">{line.slice(3)}</h4>;
-                    if (line.startsWith("- ") || line.startsWith("• ")) {
-                      return (
-                        <div key={i} className="flex items-start gap-2 text-sm text-gray-300 my-1">
-                          <span className="text-brand-400 mt-0.5 shrink-0">•</span>
-                          <span>{line.slice(2)}</span>
-                        </div>
-                      );
-                    }
-                    if (/^\d+\./.test(line)) {
-                      return (
-                        <div key={i} className="flex items-start gap-2 text-sm text-gray-300 my-1">
-                          <span className="text-brand-400 font-mono text-xs mt-0.5 shrink-0 w-4">{line.match(/^\d+/)?.[0]}.</span>
-                          <span>{line.replace(/^\d+\.\s*/, "")}</span>
-                        </div>
-                      );
-                    }
-                    if (line.startsWith("**") && line.endsWith("**")) {
-                      return <p key={i} className="text-sm font-semibold text-white my-1">{line.slice(2, -2)}</p>;
-                    }
-                    return <p key={i} className="text-sm text-gray-300 leading-relaxed my-1">{line}</p>;
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Empty prompt state */}
-          {!result && !loading && (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-brand-500/20 to-violet-500/20 border border-brand-500/20 flex items-center justify-center text-3xl mb-4">
-                🧠
-              </div>
-              <h3 className="font-semibold text-white mb-2">Your AI thinking partner</h3>
-              <p className="text-sm text-gray-500 max-w-sm">
-                Select reels from the left, choose or type a prompt, and let AI connect the dots between everything you've saved.
-              </p>
-            </div>
-          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Lightweight markdown renderer
+function MarkdownContent({ content }: { content: string }) {
+  return (
+    <div className="space-y-1">
+      {content.split("\n").map((line, i) => {
+        if (!line.trim()) return <div key={i} className="h-2" />;
+        if (line.startsWith("# "))
+          return <h3 key={i} className="text-base font-bold text-white mt-3 mb-1">{line.slice(2)}</h3>;
+        if (line.startsWith("## "))
+          return <h4 key={i} className="text-sm font-semibold text-gray-200 mt-2 mb-1">{line.slice(3)}</h4>;
+        if (line.startsWith("- ") || line.startsWith("• "))
+          return (
+            <div key={i} className="flex items-start gap-2 text-sm text-gray-300 my-0.5">
+              <span className="text-brand-400 mt-1 shrink-0 text-xs">•</span>
+              <span>{line.slice(2)}</span>
+            </div>
+          );
+        if (/^\d+\./.test(line))
+          return (
+            <div key={i} className="flex items-start gap-2 text-sm text-gray-300 my-0.5">
+              <span className="text-brand-400 font-mono text-xs mt-0.5 shrink-0 w-4">{line.match(/^\d+/)?.[0]}.</span>
+              <span>{line.replace(/^\d+\.\s*/, "")}</span>
+            </div>
+          );
+        if (line.startsWith("**") && line.endsWith("**"))
+          return <p key={i} className="text-sm font-semibold text-white my-1">{line.slice(2, -2)}</p>;
+        return <p key={i} className="text-sm text-gray-300 leading-relaxed">{line}</p>;
+      })}
     </div>
   );
 }
@@ -319,7 +443,6 @@ function ReelSelectCard({
       )}
     >
       <div className="flex items-start gap-2.5">
-        {/* Checkbox */}
         <div className={cn(
           "w-4 h-4 rounded-md border shrink-0 mt-0.5 flex items-center justify-center transition-all",
           selected ? "bg-brand-500 border-brand-500 text-white" : "border-surface-border"
@@ -338,7 +461,7 @@ function ReelSelectCard({
           ) : null}
           {reel.ai_summary && (
             <span className="inline-flex items-center gap-0.5 text-xs text-brand-400 mt-1">
-              <Sparkles size={9} /> AI analysed
+              <Sparkles size={9} /> AI
             </span>
           )}
         </div>

@@ -30,7 +30,8 @@ export interface Reel {
   author_url: string | null;
   category: ReelCategory;
   tags: string[];
-  project_tags: string[];   // which active projects this reel is relevant to
+  project_tags: string[];        // which active projects this reel is relevant to
+  extra_categories: string[];   // secondary category memberships (non-destructive)
   status: ReelStatus;
   notes: string | null;
   ai_summary: string | null;

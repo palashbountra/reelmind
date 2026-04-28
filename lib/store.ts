@@ -30,6 +30,19 @@ interface AppState {
   setBulkImportOpen: (open: boolean) => void;
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (v: boolean) => void;
+
+  // Settings version — increment after hydrating Supabase settings so
+  // components that read localStorage (categories, projects) know to re-render.
+  settingsVersion: number;
+  bumpSettingsVersion: () => void;
+
+  // Cross-linking: pending task creation from Ideate / Projects
+  pendingTaskTitle: string | null;
+  setPendingTaskTitle: (title: string | null) => void;
+
+  // Active view — owned here so any component can switch views
+  activeView: "dashboard" | "ideate" | "tasks" | "projects";
+  setActiveView: (v: "dashboard" | "ideate" | "tasks" | "projects") => void;
 }
 
 const defaultFilters: ReelFilters = {
@@ -76,4 +89,14 @@ export const useAppStore = create<AppState>((set) => ({
   setBulkImportOpen: (open) => set({ bulkImportOpen: open }),
   sidebarCollapsed: false,
   setSidebarCollapsed: (v) => set({ sidebarCollapsed: v }),
+
+  settingsVersion: 0,
+  bumpSettingsVersion: () =>
+    set((s) => ({ settingsVersion: s.settingsVersion + 1 })),
+
+  pendingTaskTitle: null,
+  setPendingTaskTitle: (title) => set({ pendingTaskTitle: title }),
+
+  activeView: "dashboard",
+  setActiveView: (v) => set({ activeView: v }),
 }));

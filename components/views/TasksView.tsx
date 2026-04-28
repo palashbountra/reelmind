@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  CheckSquare, Plus, Trash2, Calendar, ExternalLink,
-  Check, Circle, Bell, Clock, AlertCircle
+  CheckSquare, Plus, Trash2, Clock, Check,
+  Circle, Bell, AlertCircle, Sparkles,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { getTasks, createTask, toggleTask as dbToggle, deleteTask } from "@/lib/db/tasks";
@@ -14,13 +14,14 @@ import type { Task } from "@/lib/types";
 import toast from "react-hot-toast";
 
 export function TasksView() {
-  const { tasks, setTasks, addTask, toggleTask, removeTask, reels } = useAppStore();
+  const { tasks, setTasks, addTask, toggleTask, removeTask, reels, pendingTaskTitle, setPendingTaskTitle } = useAppStore();
   const [loading, setLoading] = useState(true);
   const [newTitle, setNewTitle] = useState("");
   const [selectedReelId, setSelectedReelId] = useState<string | null>(null);
   const [dueDate, setDueDate] = useState("");
   const [filter, setFilter] = useState<"all" | "pending" | "done">("all");
   const [adding, setAdding] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -29,6 +30,19 @@ export function TasksView() {
       .catch(console.error)
       .finally(() => setLoading(false));
   }, [setTasks]);
+
+  // Pre-fill from Ideate's "Create Task" action
+  useEffect(() => {
+    if (pendingTaskTitle) {
+      setNewTitle(pendingTaskTitle);
+      setPendingTaskTitle(null);
+      // Focus + scroll into view
+      setTimeout(() => {
+        inputRef.current?.focus();
+        inputRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 150);
+    }
+  }, [pendingTaskTitle, setPendingTaskTitle]);
 
   const filtered = tasks.filter((t) => {
     if (filter === "pending") return !t.is_done;
@@ -39,14 +53,9 @@ export function TasksView() {
   const pendingCount = tasks.filter((t) => !t.is_done).length;
   const doneCount = tasks.filter((t) => t.is_done).length;
 
-  // Group overdue tasks
   const now = new Date();
-  const overdue = filtered.filter(
-    (t) => !t.is_done && t.due_date && new Date(t.due_date) < now
-  );
-  const upcoming = filtered.filter(
-    (t) => !t.is_done && (!t.due_date || new Date(t.due_date) >= now)
-  );
+  const overdue = filtered.filter((t) => !t.is_done && t.due_date && new Date(t.due_date) < now);
+  const upcoming = filtered.filter((t) => !t.is_done && (!t.due_date || new Date(t.due_date) >= now));
   const done = filtered.filter((t) => t.is_done);
 
   async function handleAdd() {
@@ -84,17 +93,14 @@ export function TasksView() {
     toast.success("Task removed");
   }
 
-  // Auto-generate tasks from AI action items
   async function handleImportActionItems() {
     const reelsWithActions = reels.filter(
       (r) => r.ai_action_items && r.ai_action_items.length > 0 && r.status !== "archived"
     );
-
     if (reelsWithActions.length === 0) {
       toast.error("No AI action items found. Add reels with AI analysis first.");
       return;
     }
-
     let imported = 0;
     for (const reel of reelsWithActions) {
       for (const item of reel.ai_action_items!) {
@@ -108,12 +114,10 @@ export function TasksView() {
           });
           addTask(task);
           imported++;
-        } catch {
-          // Skip duplicates silently
-        }
+        } catch { /* skip duplicates */ }
       }
     }
-    toast.success(`Imported ${imported} action items as tasks`);
+    toast.success(`Imported ${imported} action item${imported !== 1 ? "s" : ""} as tasks`);
   }
 
   return (
@@ -123,17 +127,13 @@ export function TasksView() {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-bold text-white flex items-center gap-2">
-              Tasks & Reminders
+              Tasks &amp; Reminders
             </h1>
             <p className="text-xs text-gray-500 mt-0.5">
               {pendingCount} pending · {doneCount} done
             </p>
           </div>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={handleImportActionItems}
-          >
+          <Button variant="secondary" size="sm" onClick={handleImportActionItems}>
             <Bell size={13} />
             Import from AI
           </Button>
@@ -160,13 +160,26 @@ export function TasksView() {
 
       {/* Add task form */}
       <div className="px-6 py-4 border-b border-surface-border bg-surface-hover/30">
+        {/* Ideate hint if pre-filled */}
+        {newTitle && (
+          <div className="flex items-center gap-1.5 mb-2 text-xs text-brand-400">
+            <Sparkles size={11} />
+            <span>Pre-filled from Ideate — edit and press Enter to save</span>
+          </div>
+        )}
         <div className="flex gap-2">
           <input
+            ref={inputRef}
             value={newTitle}
             onChange={(e) => setNewTitle(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-            placeholder="Add a new task..."
-            className="flex-1 px-3 py-2 bg-surface-hover border border-surface-border rounded-xl text-sm text-white placeholder:text-gray-600 outline-none focus:border-brand-500/40 transition-all"
+            placeholder="Add a new task…"
+            className={cn(
+              "flex-1 px-3 py-2 bg-surface-hover border rounded-xl text-sm text-white placeholder:text-gray-600 outline-none transition-all",
+              newTitle
+                ? "border-brand-500/40 ring-1 ring-brand-500/20"
+                : "border-surface-border focus:border-brand-500/40"
+            )}
           />
           <input
             type="date"
@@ -225,7 +238,6 @@ export function TasksView() {
           </div>
         ) : (
           <>
-            {/* Overdue */}
             {overdue.length > 0 && (
               <TaskGroup
                 title="Overdue"
@@ -237,8 +249,6 @@ export function TasksView() {
                 titleColor="text-red-400"
               />
             )}
-
-            {/* Upcoming / Active */}
             {upcoming.length > 0 && (
               <TaskGroup
                 title={filter === "all" ? "Pending" : "Tasks"}
@@ -250,8 +260,6 @@ export function TasksView() {
                 titleColor="text-white"
               />
             )}
-
-            {/* Done */}
             {done.length > 0 && (
               <TaskGroup
                 title="Completed"
@@ -272,14 +280,7 @@ export function TasksView() {
 }
 
 function TaskGroup({
-  title,
-  icon,
-  tasks,
-  onToggle,
-  onDelete,
-  reels,
-  titleColor,
-  dimmed = false,
+  title, icon, tasks, onToggle, onDelete, reels, titleColor, dimmed = false,
 }: {
   title: string;
   icon: React.ReactNode;
@@ -310,10 +311,9 @@ function TaskGroup({
                 "flex items-start gap-3 p-3 rounded-xl border transition-all group",
                 dimmed
                   ? "bg-surface-card/50 border-surface-border/50 opacity-60"
-                  : "bg-surface-card border-surface-border hover:border-surface-border"
+                  : "bg-surface-card border-surface-border"
               )}
             >
-              {/* Checkbox */}
               <button
                 onClick={() => onToggle(task)}
                 className={cn(
@@ -327,42 +327,27 @@ function TaskGroup({
               </button>
 
               <div className="flex-1 min-w-0">
-                <p className={cn(
-                  "text-sm text-white leading-snug",
-                  task.is_done && "line-through text-gray-500"
-                )}>
+                <p className={cn("text-sm text-white leading-snug", task.is_done && "line-through text-gray-500")}>
                   {task.title}
                 </p>
-
                 <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                  {/* Linked reel */}
                   {linkedReel && (
                     <span className="flex items-center gap-1 text-xs text-gray-600">
                       <span>{getCategoryById(linkedReel.category).emoji}</span>
                       <span className="truncate max-w-[120px]">{linkedReel.title}</span>
                     </span>
                   )}
-
-                  {/* Due date */}
                   {task.due_date && (
-                    <span className={cn(
-                      "flex items-center gap-1 text-xs",
-                      isOverdue ? "text-red-400" : "text-gray-600"
-                    )}>
+                    <span className={cn("flex items-center gap-1 text-xs", isOverdue ? "text-red-400" : "text-gray-600")}>
                       <Clock size={10} />
                       {isOverdue ? "Overdue · " : "Due "}
                       {new Date(task.due_date).toLocaleDateString()}
                     </span>
                   )}
-
-                  {/* Created */}
-                  <span className="text-xs text-gray-700">
-                    {formatDate(task.created_at)}
-                  </span>
+                  <span className="text-xs text-gray-700">{formatDate(task.created_at)}</span>
                 </div>
               </div>
 
-              {/* Delete button */}
               <button
                 onClick={() => onDelete(task.id)}
                 className="p-1.5 rounded-lg text-gray-700 hover:text-red-400 hover:bg-red-500/10 opacity-0 group-hover:opacity-100 transition-all shrink-0"

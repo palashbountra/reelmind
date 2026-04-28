@@ -21,26 +21,32 @@ const STATUS_ITEMS: { label: string; value: ReelStatus | "all"; icon: React.Reac
   { label: "Done",        value: "done",        icon: <Check size={15} />,       color: "text-green-400" },
 ];
 
-interface SidebarProps {
-  activeView: "dashboard" | "ideate" | "tasks" | "projects";
-  onViewChange: (view: "dashboard" | "ideate" | "tasks" | "projects") => void;
-}
+export function Sidebar() {
+  const {
+    filters, setFilters, setAddReelOpen, setBulkImportOpen,
+    reels, sidebarCollapsed, setSidebarCollapsed,
+    activeView, setActiveView, settingsVersion,
+  } = useAppStore();
 
-export function Sidebar({ activeView, onViewChange }: SidebarProps) {
-  const { filters, setFilters, setAddReelOpen, setBulkImportOpen, reels, sidebarCollapsed, setSidebarCollapsed } = useAppStore();
   const [catManagerOpen, setCatManagerOpen] = useState(false);
-  // Force re-render when categories change
   const [categories, setCategories] = useState<CustomCategory[]>([]);
 
+  // Re-read categories whenever settingsVersion bumps (after Supabase hydration)
+  // or when the component first mounts.
   useEffect(() => {
     setCategories(getAllCategories());
-  }, []);
+  }, [settingsVersion]);
 
   function refreshCategories() {
     setCategories(getAllCategories());
   }
 
-  const categoryCount = (id: string) => reels.filter((r) => r.category === id).length;
+  // Count includes both primary category and extra_categories
+  const categoryCount = (id: string) =>
+    reels.filter(
+      (r) => r.category === id || (r.extra_categories ?? []).includes(id)
+    ).length;
+
   const statusCount = (status: ReelStatus | "all") =>
     status === "all" ? reels.length : reels.filter((r) => r.status === status).length;
 
@@ -113,7 +119,7 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
             ].map((item) => (
               <button
                 key={item.value}
-                onClick={() => onViewChange(item.value)}
+                onClick={() => setActiveView(item.value)}
                 className={cn(
                   "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm transition-all",
                   activeView === item.value
@@ -135,7 +141,10 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
             {STATUS_ITEMS.map((item) => (
               <button
                 key={item.value}
-                onClick={() => { onViewChange("dashboard"); setFilters({ status: item.value }); }}
+                onClick={() => {
+                  setActiveView("dashboard");
+                  setFilters({ status: item.value, category: "all" });
+                }}
                 className={cn(
                   "w-full flex items-center justify-between gap-2.5 px-3 py-1.5 rounded-xl text-sm transition-all",
                   filters.status === item.value && activeView === "dashboard"
@@ -155,7 +164,10 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
 
             {/* Favourites */}
             <button
-              onClick={() => { onViewChange("dashboard"); setFilters({ favourites: !filters.favourites }); }}
+              onClick={() => {
+                setActiveView("dashboard");
+                setFilters({ favourites: !filters.favourites });
+              }}
               className={cn(
                 "w-full flex items-center justify-between gap-2.5 px-3 py-1.5 rounded-xl text-sm transition-all",
                 filters.favourites
@@ -191,16 +203,19 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
 
               {categories.map((cat) => {
                 const count = categoryCount(cat.id);
+                const isActive = filters.category === cat.id && activeView === "dashboard";
                 return (
                   <button
                     key={cat.id}
                     onClick={() => {
-                      onViewChange("dashboard");
-                      setFilters({ category: filters.category === cat.id ? "all" : cat.id });
+                      // Always switch to dashboard and set this category —
+                      // never toggle back (that was causing the "stuck" bug)
+                      setActiveView("dashboard");
+                      setFilters({ category: cat.id, status: "all", favourites: false });
                     }}
                     className={cn(
                       "w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-sm transition-all",
-                      filters.category === cat.id && activeView === "dashboard"
+                      isActive
                         ? "bg-surface-hover text-white"
                         : "text-gray-500 hover:text-gray-300 hover:bg-surface-hover"
                     )}
@@ -231,7 +246,10 @@ export function Sidebar({ activeView, onViewChange }: SidebarProps) {
         {/* Bottom */}
         <div className="px-2 py-3 border-t border-surface-border space-y-1">
           <button
-            onClick={() => { onViewChange("dashboard"); setFilters({ status: "archived" }); }}
+            onClick={() => {
+              setActiveView("dashboard");
+              setFilters({ status: "archived" });
+            }}
             className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm text-gray-600 hover:text-gray-400 hover:bg-surface-hover transition-all"
           >
             <Archive size={15} className="shrink-0" />

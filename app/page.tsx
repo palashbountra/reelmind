@@ -8,40 +8,51 @@ import { IdeateView } from "@/components/views/IdeateView";
 import { TasksView } from "@/components/views/TasksView";
 import { ProjectsView } from "@/components/views/ProjectsView";
 import { AddReelModal } from "@/components/reels/AddReelModal";
+import { SplashScreen } from "@/components/SplashScreen";
 import { useAppStore } from "@/lib/store";
-
-type View = "dashboard" | "ideate" | "tasks" | "projects";
+import { hydrateSettings } from "@/lib/settings";
 
 // Separate component so useSearchParams works inside Suspense
 function AppContent() {
-  const [view, setView] = useState<View>("dashboard");
-  const { setAddReelOpen } = useAppStore();
+  const { activeView, setActiveView, setAddReelOpen, bumpSettingsVersion } = useAppStore();
+  const [showSplash, setShowSplash] = useState(true);
   const searchParams = useSearchParams();
+
+  // Hydrate settings from Supabase on mount so categories/projects
+  // survive new deployments without resetting.
+  useEffect(() => {
+    hydrateSettings().then(() => {
+      bumpSettingsVersion();
+    });
+  }, [bumpSettingsVersion]);
 
   // Handle bookmarklet: ?add=<instagram-url>
   useEffect(() => {
     const addUrl = searchParams.get("add");
     if (addUrl) {
-      // Pre-populate and open the add reel modal
-      // We store the URL in sessionStorage so AddReelModal can pick it up
       sessionStorage.setItem("reelmind_prefill_url", decodeURIComponent(addUrl));
       setAddReelOpen(true);
-      // Clean the URL without reload
       window.history.replaceState({}, "", "/");
     }
   }, [searchParams, setAddReelOpen]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-surface text-white">
-      <Sidebar activeView={view} onViewChange={setView} />
-      <main className="flex-1 overflow-hidden">
-        {view === "dashboard" && <DashboardView />}
-        {view === "projects" && <ProjectsView />}
-        {view === "ideate" && <IdeateView />}
-        {view === "tasks" && <TasksView />}
-      </main>
-      <AddReelModal />
-    </div>
+    <>
+      {showSplash && (
+        <SplashScreen onEnter={() => setShowSplash(false)} />
+      )}
+
+      <div className="flex h-screen overflow-hidden bg-surface text-white">
+        <Sidebar />
+        <main className="flex-1 overflow-hidden">
+          {activeView === "dashboard" && <DashboardView />}
+          {activeView === "projects"  && <ProjectsView />}
+          {activeView === "ideate"    && <IdeateView />}
+          {activeView === "tasks"     && <TasksView />}
+        </main>
+        <AddReelModal />
+      </div>
+    </>
   );
 }
 

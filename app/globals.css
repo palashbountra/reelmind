@@ -76,3 +76,71 @@ html, body {
   margin-right: 6px;
   animation: pulse-dot 2s infinite;
 }
+
+/* ── Splash screen ──────────────────────────────────────────────────── */
+@keyframes rm-shimmer {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes rm-float {
+  0%, 100% { transform: perspective(900px) rotateX(10deg) rotateY(-4deg) translateY(0px); }
+  50%       { transform: perspective(900px) rotateX(10deg) rotateY(-4deg) translateY(-14px); }
+}
+
+@keyframes rm-glow-pulse {
+  0%, 100% { opacity: 0.5; }
+  50%       { opacity: 0.9; }
+}
+
+@keyframes rm-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+@keyframes rm-ring-fill {
+  from { stroke-dashoffset: var(--dash-total); }
+  to   { stroke-dashoffset: 0; }
+}
+
+.rm-text {
+  font-size: clamp(4.5rem, 13vw, 9.5rem);
+  font-weight: 900;
+  letter-spacing: -0.03em;
+  line-height: 1;
+  text-shadow:
+    2px 3px 0 #7c3aed,
+    4px 6px 0 #6d28d9,
+    6px 9px 0 #5b21b6,
+    8px 12px 0 #4c1d95,
+    0 0 60px rgba(192, 68, 239, 0.9),
+    0 0 120px rgba(139, 92, 246, 0.5);
+  background: linear-gradient(
+    135deg,
+    #ffffff 0%,
+    #e8d5ff 20%,
+    #c044ef 45%,
+    #8b5cf6 65%,
+    #a5b4fc 80%,
+    #ffffff 100%
+  );
+  background-size: 300% 300%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: rm-shimmer 5s ease infinite, rm-float 4s ease-in-out infinite;
+}
+
+.rm-glow-bg {
+  position: absolute;
+  inset: -60px;
+  background: radial-gradient(ellipse at center, rgba(192,68,239,0.25) 0%, rgba(139,92,246,0.1) 40%, transparent 70%);
+  filter: blur(40px);
+  animation: rm-glow-pulse 3s ease infinite;
+  pointer-events: none;
+}
+
+.rm-blink {
+  animation: rm-blink 2s ease infinite;
+}

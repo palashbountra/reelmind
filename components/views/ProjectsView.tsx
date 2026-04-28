@@ -1,12 +1,16 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   Sparkles, Send, FolderOpen, Plus, Loader2,
-  RefreshCw, Copy, Check, Lightbulb, Trash2
+  RefreshCw, Copy, Check, Lightbulb, Trash2,
+  FileText, ChevronDown, ChevronUp,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
-import { getAllProjects, loadCustomProjects, saveCustomProjects, createProject, deleteProject } from "@/lib/projects";
+import {
+  getAllProjects, loadCustomProjects, saveCustomProjects,
+  createProject, deleteProject, getProjectPlan, setProjectPlan,
+} from "@/lib/projects";
 import { getCategoryById } from "@/lib/categories";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
@@ -33,6 +37,12 @@ export function ProjectsView() {
   const [loading, setLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
+  // Plan editor state
+  const [planText, setPlanText] = useState("");
+  const [planSaving, setPlanSaving] = useState(false);
+  const [planOpen, setPlanOpen] = useState(true);
+  const planSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   // Add project state
   const [addingProject, setAddingProject] = useState(false);
   const [newLabel, setNewLabel] = useState("");
@@ -41,6 +51,13 @@ export function ProjectsView() {
 
   const selectedProject = projects.find((p) => p.id === selectedProjectId) ?? null;
 
+  // Load plan when project changes
+  useEffect(() => {
+    if (selectedProjectId) {
+      setPlanText(getProjectPlan(selectedProjectId));
+    }
+  }, [selectedProjectId]);
+
   const projectReels = useMemo(() => {
     if (!selectedProjectId) return [];
     return reels.filter(
@@ -48,12 +65,24 @@ export function ProjectsView() {
     );
   }, [reels, selectedProjectId]);
 
-  // Count reels per project
   function countReels(projectId: string) {
     return reels.filter(
       (r) => r.status !== "archived" && r.project_tags?.includes(projectId)
     ).length;
   }
+
+  // Debounced plan auto-save
+  const handlePlanChange = useCallback((text: string) => {
+    setPlanText(text);
+    if (planSaveTimeout.current) clearTimeout(planSaveTimeout.current);
+    planSaveTimeout.current = setTimeout(() => {
+      if (selectedProjectId) {
+        setPlanSaving(true);
+        setProjectPlan(selectedProjectId, text);
+        setTimeout(() => setPlanSaving(false), 600);
+      }
+    }, 800);
+  }, [selectedProjectId]);
 
   async function handleSynthesize() {
     if (!prompt.trim() || projectReels.length === 0) return;
@@ -100,8 +129,19 @@ export function ProjectsView() {
     toast.success("Copied to clipboard");
   }
 
+  function handleSaveResultToPlan() {
+    if (!result || !selectedProjectId) return;
+    const existing = planText;
+    const sep = existing ? "\n\n---\n\n" : "";
+    const date = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
+    const appended = existing + sep + `### AI Synthesis — ${date}\n\n${result}`;
+    handlePlanChange(appended);
+    setPlanOpen(true);
+    toast.success("Added to project plan");
+  }
+
   function handleDeleteProject(proj: Project) {
-    if (!confirm(`Delete "${proj.label}"? This won't affect your reels — they'll just lose this project tag.`)) return;
+    if (!confirm(`Delete "${proj.label}"? This won't affect your reels.`)) return;
     deleteProject(proj.id);
     setProjects(getAllProjects());
     if (selectedProjectId === proj.id) setSelectedProjectId(null);
@@ -136,7 +176,7 @@ export function ProjectsView() {
             My Projects
           </h2>
           <p className="text-xs text-gray-500 mt-0.5">
-            Tag reels to projects — get AI insights per project
+            Tag reels to projects — AI insights per project
           </p>
         </div>
 
@@ -253,7 +293,7 @@ export function ProjectsView() {
             </div>
             <h3 className="font-semibold text-white mb-2">Select a project</h3>
             <p className="text-sm text-gray-500 max-w-sm">
-              Tag reels to your active projects — EFL Dashboard, Interlink, Stock Market — then ask AI to synthesise insights specifically for that project.
+              Tag reels to your active projects, then ask AI to synthesise insights specifically for that project. You can also keep a running plan per project.
             </p>
             <div className="mt-4 flex gap-2">
               <Button size="sm" variant="secondary" onClick={() => setBulkImportOpen(true)}>
@@ -262,9 +302,9 @@ export function ProjectsView() {
             </div>
           </div>
         ) : (
-          <>
+          <div className="flex-1 overflow-y-auto">
             {/* Project header */}
-            <div className="px-6 py-5 border-b border-surface-border shrink-0">
+            <div className="px-6 py-5 border-b border-surface-border sticky top-0 bg-[#0f0f13] z-10">
               <div className="flex items-center justify-between">
                 <div>
                   <h1 className="text-xl font-bold text-white flex items-center gap-2">
@@ -273,67 +313,74 @@ export function ProjectsView() {
                   </h1>
                   <p className="text-sm text-gray-500 mt-0.5">{selectedProject.description}</p>
                 </div>
-                <div className={cn(
-                  "px-3 py-1 rounded-full text-xs border font-medium",
-                  selectedProject.color
-                )}>
+                <span className={cn("px-3 py-1 rounded-full text-xs border font-medium", selectedProject.color)}>
                   {projectReels.length} reel{projectReels.length !== 1 ? "s" : ""}
-                </div>
+                </span>
               </div>
             </div>
 
-            <div className="flex-1 overflow-y-auto">
-              {projectReels.length === 0 ? (
-                /* Empty state */
-                <div className="flex flex-col items-center justify-center h-full text-center px-8">
-                  <div className="w-14 h-14 rounded-2xl bg-surface-hover border border-surface-border flex items-center justify-center text-2xl mb-3">
-                    {selectedProject.emoji}
+            <div className="px-6 py-5 space-y-6">
+              {/* ── Plan editor ─────────────────────────────────── */}
+              <div className="bg-surface-card border border-surface-border rounded-2xl overflow-hidden">
+                <button
+                  onClick={() => setPlanOpen((v) => !v)}
+                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-surface-hover transition-all"
+                >
+                  <div className="flex items-center gap-2">
+                    <FileText size={14} className="text-brand-400" />
+                    <span className="text-sm font-medium text-white">Project Plan &amp; Notes</span>
+                    {planSaving && <span className="text-xs text-gray-500 animate-pulse">Saving…</span>}
+                    {planText && !planSaving && <span className="w-1.5 h-1.5 rounded-full bg-brand-500 mt-0.5" />}
                   </div>
-                  <h3 className="font-semibold text-white mb-1">No reels tagged to {selectedProject.label} yet</h3>
-                  <p className="text-sm text-gray-500 mb-4 max-w-sm">
-                    When you add reels, tag them to this project and they'll show up here. Use Bulk Import to bring in all your saved reels at once.
-                  </p>
-                  <Button size="sm" variant="primary" onClick={() => setBulkImportOpen(true)}>
-                    <Plus size={12} /> Bulk import & tag to {selectedProject.label}
-                  </Button>
-                </div>
-              ) : (
-                <div className="px-6 py-5 space-y-6">
-                  {/* Prompt suggestions */}
-                  <div>
-                    <p className="text-xs text-gray-500 font-medium mb-2">
-                      💡 Ask AI about your {projectReels.length} {selectedProject.label} reels...
+                  {planOpen ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                </button>
+                {planOpen && (
+                  <div className="px-4 pb-4">
+                    <textarea
+                      value={planText}
+                      onChange={(e) => handlePlanChange(e.target.value)}
+                      placeholder={`Define your plan for ${selectedProject.label}...\n\nThis is your scratchpad — goals, notes, AI synthesis, anything.`}
+                      rows={8}
+                      className="w-full px-3 py-3 bg-surface-hover border border-surface-border rounded-xl text-sm text-white placeholder:text-gray-600 outline-none focus:border-brand-500/40 transition-all resize-none font-mono leading-relaxed"
+                    />
+                    <p className="text-xs text-gray-600 mt-1.5">
+                      Auto-saved · Markdown supported · AI synthesis appended here automatically
                     </p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {PROJECT_PROMPTS.map((s) => (
-                        <button
-                          key={s}
-                          onClick={() => setPrompt(s)}
-                          className={cn(
-                            "text-xs px-3 py-1.5 rounded-full border transition-all text-left",
-                            prompt === s
-                              ? "border-brand-500/50 bg-brand-500/10 text-brand-300"
-                              : "border-surface-border text-gray-500 hover:text-gray-300 hover:border-gray-600"
-                          )}
-                        >
-                          {s}
-                        </button>
-                      ))}
-                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* ── AI Synthesis ────────────────────────────────── */}
+              {projectReels.length > 0 && (
+                <div className="space-y-3">
+                  <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+                    AI Synthesis · {projectReels.length} reels
+                  </p>
+
+                  {/* Prompt suggestions */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {PROJECT_PROMPTS.map((s) => (
+                      <button
+                        key={s}
+                        onClick={() => setPrompt(s)}
+                        className={cn(
+                          "text-xs px-3 py-1.5 rounded-full border transition-all text-left",
+                          prompt === s
+                            ? "border-brand-500/50 bg-brand-500/10 text-brand-300"
+                            : "border-surface-border text-gray-500 hover:text-gray-300 hover:border-gray-600"
+                        )}
+                      >
+                        {s}
+                      </button>
+                    ))}
                   </div>
 
-                  {/* Synthesis input */}
                   <div className="space-y-2">
-                    <label className="text-xs text-gray-500 font-medium">
-                      Ask anything about these reels in the context of {selectedProject.label}
-                    </label>
                     <textarea
                       value={prompt}
                       onChange={(e) => setPrompt(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSynthesize();
-                      }}
-                      placeholder={`What do these reels tell me about working on ${selectedProject.label}?`}
+                      onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSynthesize(); }}
+                      placeholder={`Ask AI about your ${selectedProject.label} reels…`}
                       rows={3}
                       className="w-full px-4 py-3 bg-surface-hover border border-surface-border rounded-xl text-sm text-white placeholder:text-gray-600 outline-none focus:border-brand-500/40 transition-all resize-none"
                     />
@@ -345,46 +392,42 @@ export function ProjectsView() {
                       className="w-full"
                     >
                       <Sparkles size={14} />
-                      {loading ? "Synthesising..." : `Synthesise for ${selectedProject.label}`}
+                      {loading ? "Synthesising…" : `Synthesise for ${selectedProject.label}`}
                       {!loading && <Send size={13} />}
                     </Button>
-                    {projectReels.length > 20 && (
-                      <p className="text-xs text-gray-600 text-center">
-                        Using top 20 of {projectReels.length} reels for synthesis
-                      </p>
-                    )}
                   </div>
 
-                  {/* AI result */}
                   {loading && (
-                    <div className="flex items-center justify-center py-10 gap-3 text-gray-500">
-                      <Loader2 size={20} className="animate-spin text-brand-400" />
-                      <span className="text-sm">Connecting your {projectReels.length} reels to {selectedProject.label}...</span>
+                    <div className="flex items-center justify-center py-8 gap-3 text-gray-500">
+                      <Loader2 size={18} className="animate-spin text-brand-400" />
+                      <span className="text-sm">Connecting {projectReels.length} reels to {selectedProject.label}…</span>
                     </div>
                   )}
 
                   {result && !loading && (
-                    <div className="bg-surface-card border border-surface-border rounded-2xl overflow-hidden animate-fade-in">
+                    <div className="bg-surface-card border border-surface-border rounded-2xl overflow-hidden">
                       <div className="flex items-center justify-between px-4 py-3 border-b border-surface-border bg-brand-500/5">
                         <div className="flex items-center gap-2">
                           <Sparkles size={14} className="text-brand-400" />
                           <span className="text-sm font-medium text-white">
-                            {selectedProject.emoji} {selectedProject.label} Insights
+                            {selectedProject.emoji} Insights
                           </span>
                         </div>
                         <div className="flex items-center gap-1">
                           <button
+                            onClick={handleSaveResultToPlan}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-gray-500 hover:text-brand-300 hover:bg-brand-500/10 transition-all"
+                            title="Append to project plan"
+                          >
+                            <FileText size={12} /> Save to plan
+                          </button>
+                          <button
                             onClick={() => { setResult(""); setPrompt(""); }}
                             className="p-1.5 rounded-lg text-gray-600 hover:text-gray-300 hover:bg-surface-hover transition-all"
-                            title="Clear"
                           >
                             <RefreshCw size={13} />
                           </button>
-                          <button
-                            onClick={handleCopy}
-                            className="p-1.5 rounded-lg text-gray-600 hover:text-gray-300 hover:bg-surface-hover transition-all"
-                            title="Copy"
-                          >
+                          <button onClick={handleCopy} className="p-1.5 rounded-lg text-gray-600 hover:text-gray-300 hover:bg-surface-hover transition-all">
                             {copied ? <Check size={13} className="text-green-400" /> : <Copy size={13} />}
                           </button>
                         </div>
@@ -395,44 +438,60 @@ export function ProjectsView() {
                             if (!line.trim()) return <div key={i} className="h-2" />;
                             if (line.startsWith("# ")) return <h3 key={i} className="text-base font-bold text-white mt-3 mb-1">{line.slice(2)}</h3>;
                             if (line.startsWith("## ")) return <h4 key={i} className="text-sm font-semibold text-gray-200 mt-2 mb-1">{line.slice(3)}</h4>;
-                            if (line.startsWith("- ") || line.startsWith("• ")) {
+                            if (line.startsWith("- ") || line.startsWith("• "))
                               return (
                                 <div key={i} className="flex items-start gap-2 text-sm text-gray-300 my-1">
                                   <span className="text-brand-400 mt-0.5 shrink-0">•</span>
                                   <span>{line.slice(2)}</span>
                                 </div>
                               );
-                            }
-                            if (/^\d+\./.test(line)) {
+                            if (/^\d+\./.test(line))
                               return (
                                 <div key={i} className="flex items-start gap-2 text-sm text-gray-300 my-1">
                                   <span className="text-brand-400 font-mono text-xs mt-0.5 shrink-0 w-4">{line.match(/^\d+/)?.[0]}.</span>
                                   <span>{line.replace(/^\d+\.\s*/, "")}</span>
                                 </div>
                               );
-                            }
                             return <p key={i} className="text-sm text-gray-300 leading-relaxed my-1">{line}</p>;
                           })}
                         </div>
                       </div>
                     </div>
                   )}
+                </div>
+              )}
 
-                  {/* Reel list */}
-                  <div>
-                    <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-3">
-                      Reels tagged to {selectedProject.label} ({projectReels.length})
-                    </p>
-                    <div className="space-y-2">
-                      {projectReels.map((reel) => (
-                        <ReelProjectCard key={reel.id} reel={reel} />
-                      ))}
-                    </div>
+              {/* ── Reels list ───────────────────────────────────── */}
+              {projectReels.length > 0 && (
+                <div>
+                  <p className="text-xs text-gray-500 font-semibold uppercase tracking-wider mb-3">
+                    Reels tagged to {selectedProject.label} ({projectReels.length})
+                  </p>
+                  <div className="space-y-2">
+                    {projectReels.map((reel) => (
+                      <ReelProjectCard key={reel.id} reel={reel} />
+                    ))}
                   </div>
                 </div>
               )}
+
+              {/* Empty reel state */}
+              {projectReels.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-surface-hover border border-surface-border flex items-center justify-center text-2xl mb-3">
+                    {selectedProject.emoji}
+                  </div>
+                  <h3 className="font-semibold text-white mb-1">No reels tagged to {selectedProject.label} yet</h3>
+                  <p className="text-sm text-gray-500 mb-4 max-w-sm">
+                    Tag reels to this project from the Dashboard or use Bulk Import.
+                  </p>
+                  <Button size="sm" variant="primary" onClick={() => setBulkImportOpen(true)}>
+                    <Plus size={12} /> Bulk import & tag to {selectedProject.label}
+                  </Button>
+                </div>
+              )}
             </div>
-          </>
+          </div>
         )}
       </div>
     </div>

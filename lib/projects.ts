@@ -4,6 +4,7 @@ import { setSetting } from "./settings";
 
 const CUSTOM_PROJECTS_KEY  = "reelmind_custom_projects";
 const DELETED_PROJECTS_KEY = "reelmind_deleted_projects"; // IDs of deleted default projects
+const PROJECT_PLANS_KEY    = "reelmind_project_plans";    // Record<projectId, planText>
 
 export interface Project {
   id: string;
@@ -113,6 +114,28 @@ export function deleteProject(id: string): void {
     const custom = loadCustomProjects().filter((p) => p.id !== id);
     saveCustomProjects(custom);
   }
+}
+
+// ── Project plans ─────────────────────────────────────────────────────────────
+
+export function getProjectPlan(id: string): string {
+  if (typeof window === "undefined") return "";
+  try {
+    const raw = localStorage.getItem(PROJECT_PLANS_KEY);
+    const plans = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    return plans[id] ?? "";
+  } catch { return ""; }
+}
+
+export function setProjectPlan(id: string, plan: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = localStorage.getItem(PROJECT_PLANS_KEY);
+    const plans = raw ? (JSON.parse(raw) as Record<string, string>) : {};
+    plans[id] = plan;
+    localStorage.setItem(PROJECT_PLANS_KEY, JSON.stringify(plans));
+    setSetting(PROJECT_PLANS_KEY, plans);
+  } catch {}
 }
 
 export function createProject(label: string, emoji: string, description: string): Project {
