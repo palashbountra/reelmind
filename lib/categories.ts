@@ -30,9 +30,10 @@ export const BUILTIN_CATEGORY_LIST: CustomCategory[] = [
 ];
 
 const CUSTOM_KEY   = "reelmind_custom_categories";
-const OVERRIDE_KEY = "reelmind_builtin_overrides"; // stores label/emoji edits to built-ins
+const OVERRIDE_KEY = "reelmind_builtin_overrides";
+const DELETED_KEY  = "reelmind_deleted_builtins"; // IDs of deleted built-ins
 
-// ── Custom categories (user-created) ──────────────────────────────────────────
+// ── Custom categories ──────────────────────────────────────────────────────────
 
 export function loadCustomCategories(): CustomCategory[] {
   if (typeof window === "undefined") return [];
@@ -47,7 +48,34 @@ export function saveCustomCategories(cats: CustomCategory[]): void {
   localStorage.setItem(CUSTOM_KEY, JSON.stringify(cats));
 }
 
-// ── Built-in overrides (label + emoji only) ───────────────────────────────────
+// ── Deleted built-ins ─────────────────────────────────────────────────────────
+
+export function loadDeletedBuiltins(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(DELETED_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch { return []; }
+}
+
+function saveDeletedBuiltins(ids: string[]): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(DELETED_KEY, JSON.stringify(ids));
+}
+
+export function deleteBuiltinCategory(id: string): void {
+  const deleted = loadDeletedBuiltins();
+  if (!deleted.includes(id)) {
+    saveDeletedBuiltins([...deleted, id]);
+  }
+}
+
+export function restoreBuiltinCategory(id: string): void {
+  const deleted = loadDeletedBuiltins().filter((d) => d !== id);
+  saveDeletedBuiltins(deleted);
+}
+
+// ── Built-in overrides (label + emoji) ───────────────────────────────────────
 
 type BuiltinOverrides = Record<string, { label: string; emoji: string }>;
 
@@ -66,31 +94,40 @@ export function saveBuiltinOverrides(overrides: BuiltinOverrides): void {
 
 // ── Core API ──────────────────────────────────────────────────────────────────
 
-/** Returns all categories (built-ins with any user edits applied, then custom ones). */
+/** Returns all active categories (built-ins minus deleted, with edits applied, then custom). */
 export function getAllCategories(): CustomCategory[] {
   const overrides = loadBuiltinOverrides();
   const custom    = loadCustomCategories();
+  const deleted   = loadDeletedBuiltins();
 
-  const builtins = BUILTIN_CATEGORY_LIST.map((cat) => ({
-    ...cat,
-    ...(overrides[cat.id] ?? {}), // apply label/emoji override if present
-  }));
+  const builtins = BUILTIN_CATEGORY_LIST
+    .filter((cat) => !deleted.includes(cat.id))
+    .map((cat) => ({
+      ...cat,
+      ...(overrides[cat.id] ?? {}),
+    }));
 
   return [...builtins, ...custom];
 }
 
-/** Looks up a category by ID, falling back to a sensible default for unknown IDs. */
+/** Looks up a category by ID, falling back to a sensible default. */
 export function getCategoryById(id: string): CustomCategory {
+  // Check active categories first
   const all = getAllCategories();
-  return (
-    all.find((c) => c.id === id) ?? {
-      id,
-      label: id.charAt(0).toUpperCase() + id.slice(1),
-      emoji: "🏷️",
-      color: "bg-gray-500/20 text-gray-300 border-gray-500/30",
-      isBuiltin: false,
-    }
-  );
+  const found = all.find((c) => c.id === id);
+  if (found) return found;
+
+  // Check deleted built-ins so existing reels still show their category name
+  const original = BUILTIN_CATEGORY_LIST.find((c) => c.id === id);
+  if (original) return original;
+
+  return {
+    id,
+    label: id.charAt(0).toUpperCase() + id.slice(1),
+    emoji: "🏷️",
+    color: "bg-gray-500/20 text-gray-300 border-gray-500/30",
+    isBuiltin: false,
+  };
 }
 
 /** Saves an edit to a built-in category's label/emoji. */

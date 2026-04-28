@@ -1,19 +1,17 @@
 // ── Projects — connect reels to your active work ─────────────────────────────
-// Projects are separate from categories. A reel's category = what topic it is.
-// A reel's project_tags = which active projects it's relevant to.
 
-const CUSTOM_PROJECTS_KEY = "reelmind_custom_projects";
+const CUSTOM_PROJECTS_KEY  = "reelmind_custom_projects";
+const DELETED_PROJECTS_KEY = "reelmind_deleted_projects"; // IDs of deleted default projects
 
 export interface Project {
   id: string;
   label: string;
   emoji: string;
-  color: string; // tailwind badge classes
+  color: string;
   description: string;
   isDefault: boolean;
 }
 
-// Your real active projects — pulled from your Obsidian CLAUDE.md
 export const DEFAULT_PROJECTS: Project[] = [
   {
     id: "efl-dashboard",
@@ -57,14 +55,14 @@ export const DEFAULT_PROJECTS: Project[] = [
   },
 ];
 
+// ── Custom projects ────────────────────────────────────────────────────────────
+
 export function loadCustomProjects(): Project[] {
   if (typeof window === "undefined") return [];
   try {
     const raw = localStorage.getItem(CUSTOM_PROJECTS_KEY);
     return raw ? (JSON.parse(raw) as Project[]) : [];
-  } catch {
-    return [];
-  }
+  } catch { return []; }
 }
 
 export function saveCustomProjects(projects: Project[]): void {
@@ -72,12 +70,45 @@ export function saveCustomProjects(projects: Project[]): void {
   localStorage.setItem(CUSTOM_PROJECTS_KEY, JSON.stringify(projects));
 }
 
+// ── Deleted default projects ──────────────────────────────────────────────────
+
+function loadDeletedProjects(): string[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(DELETED_PROJECTS_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch { return []; }
+}
+
+function saveDeletedProjects(ids: string[]): void {
+  if (typeof window === "undefined") return;
+  localStorage.setItem(DELETED_PROJECTS_KEY, JSON.stringify(ids));
+}
+
+// ── Core API ──────────────────────────────────────────────────────────────────
+
 export function getAllProjects(): Project[] {
-  return [...DEFAULT_PROJECTS, ...loadCustomProjects()];
+  const deleted = loadDeletedProjects();
+  const defaults = DEFAULT_PROJECTS.filter((p) => !deleted.includes(p.id));
+  return [...defaults, ...loadCustomProjects()];
 }
 
 export function getProjectById(id: string): Project | undefined {
-  return getAllProjects().find((p) => p.id === id);
+  // Check active projects first, then deleted defaults (so tagged reels still resolve)
+  return getAllProjects().find((p) => p.id === id)
+    ?? DEFAULT_PROJECTS.find((p) => p.id === id);
+}
+
+/** Delete any project — removes defaults by ID, removes custom from array. */
+export function deleteProject(id: string): void {
+  const isDefault = DEFAULT_PROJECTS.some((p) => p.id === id);
+  if (isDefault) {
+    const deleted = loadDeletedProjects();
+    if (!deleted.includes(id)) saveDeletedProjects([...deleted, id]);
+  } else {
+    const custom = loadCustomProjects().filter((p) => p.id !== id);
+    saveCustomProjects(custom);
+  }
 }
 
 export function createProject(label: string, emoji: string, description: string): Project {

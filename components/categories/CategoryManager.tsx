@@ -1,16 +1,16 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { X, Plus, Pencil, Trash2, Check, RotateCcw, Lock } from "lucide-react";
+import { X, Plus, Pencil, Trash2, Check, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import {
   BUILTIN_CATEGORY_LIST,
   loadCustomCategories,
   saveCustomCategories,
-  loadBuiltinOverrides,
   updateBuiltinCategory,
   resetBuiltinCategory,
   isBuiltinModified,
+  deleteBuiltinCategory,
   createCategory,
   getNextColor,
   getAllCategories,
@@ -121,13 +121,17 @@ export function CategoryManager({ open, onClose, onCategoriesChange }: CategoryM
     toast.success(`"${original.label}" reset to default`);
   }
 
-  // ── Delete custom category ────────────────────────────────────────────────────
+  // ── Delete any category (built-in or custom) ─────────────────────────────────
   function handleDelete(cat: CustomCategory) {
-    if (!confirm(`Delete "${cat.label}"? Reels in this category will move to "other".`)) return;
-    const updated = customCats.filter((c) => c.id !== cat.id);
-    saveCustomCategories(updated);
+    if (!confirm(`Delete "${cat.label}"? Reels in this category will still show it but it won't appear in filters or when adding new reels.`)) return;
+    if (cat.isBuiltin) {
+      deleteBuiltinCategory(cat.id);
+    } else {
+      const updated = customCats.filter((c) => c.id !== cat.id);
+      saveCustomCategories(updated);
+    }
     persistAndNotify();
-    toast.success("Category removed");
+    toast.success(`"${cat.label}" removed`);
   }
 
   if (!open) return null;
@@ -142,7 +146,7 @@ export function CategoryManager({ open, onClose, onCategoriesChange }: CategoryM
           <div>
             <h2 className="font-semibold text-white">Manage Categories</h2>
             <p className="text-xs text-gray-500 mt-0.5">
-              Edit labels &amp; emojis · Add custom · Remove custom
+              Edit labels &amp; emojis · Add · Delete any
             </p>
           </div>
           <button onClick={onClose} className="p-2 rounded-xl text-gray-500 hover:text-white hover:bg-surface-hover transition-all">
@@ -263,11 +267,6 @@ export function CategoryManager({ open, onClose, onCategoriesChange }: CategoryM
                       )}>
                         <span className="shrink-0">{cat.emoji}</span>
                         <span className="truncate">{cat.label}</span>
-                        {cat.isBuiltin && (
-                          <span className="ml-1 text-gray-600 shrink-0" title="Built-in">
-                            <Lock size={9} />
-                          </span>
-                        )}
                         {modified && (
                           <span className="ml-0.5 text-brand-400 text-xs shrink-0" title="Customised">✎</span>
                         )}
@@ -295,16 +294,14 @@ export function CategoryManager({ open, onClose, onCategoriesChange }: CategoryM
                           </button>
                         )}
 
-                        {/* Delete (custom only) */}
-                        {!cat.isBuiltin && (
-                          <button
-                            onClick={() => handleDelete(cat)}
-                            className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
-                            title="Delete category"
-                          >
-                            <Trash2 size={13} />
-                          </button>
-                        )}
+                        {/* Delete (all categories) */}
+                        <button
+                          onClick={() => handleDelete(cat)}
+                          className="p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                          title="Delete category"
+                        >
+                          <Trash2 size={13} />
+                        </button>
                       </div>
                     </>
                   )}
@@ -316,13 +313,10 @@ export function CategoryManager({ open, onClose, onCategoriesChange }: CategoryM
           {/* Legend */}
           <div className="flex items-center gap-4 pt-1 pb-2">
             <span className="flex items-center gap-1.5 text-xs text-gray-600">
-              <Lock size={10} /> Built-in (can edit, not delete)
-            </span>
-            <span className="flex items-center gap-1.5 text-xs text-gray-600">
               <RotateCcw size={10} /> Reset to default
             </span>
             <span className="flex items-center gap-1.5 text-xs text-gray-600">
-              <Trash2 size={10} /> Delete custom
+              <Trash2 size={10} /> Delete
             </span>
           </div>
         </div>

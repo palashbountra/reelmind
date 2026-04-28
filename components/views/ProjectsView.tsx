@@ -3,10 +3,10 @@
 import { useState, useMemo } from "react";
 import {
   Sparkles, Send, FolderOpen, Plus, Loader2,
-  RefreshCw, Copy, Check, ChevronRight, Lightbulb
+  RefreshCw, Copy, Check, Lightbulb, Trash2
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
-import { getAllProjects, loadCustomProjects, saveCustomProjects, createProject } from "@/lib/projects";
+import { getAllProjects, loadCustomProjects, saveCustomProjects, createProject, deleteProject } from "@/lib/projects";
 import { getCategoryById } from "@/lib/categories";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
@@ -100,6 +100,14 @@ export function ProjectsView() {
     toast.success("Copied to clipboard");
   }
 
+  function handleDeleteProject(proj: Project) {
+    if (!confirm(`Delete "${proj.label}"? This won't affect your reels — they'll just lose this project tag.`)) return;
+    deleteProject(proj.id);
+    setProjects(getAllProjects());
+    if (selectedProjectId === proj.id) setSelectedProjectId(null);
+    toast.success(`"${proj.label}" removed`);
+  }
+
   function handleAddProject() {
     if (!newLabel.trim()) { toast.error("Enter a project name"); return; }
     const proj = createProject(newLabel, newEmoji, newDesc);
@@ -136,38 +144,49 @@ export function ProjectsView() {
           {projects.map((proj) => {
             const count = countReels(proj.id);
             return (
-              <button
+              <div
                 key={proj.id}
-                onClick={() => {
-                  setSelectedProjectId(proj.id);
-                  setResult("");
-                  setPrompt("");
-                }}
                 className={cn(
-                  "w-full text-left px-3 py-2.5 rounded-xl border transition-all",
+                  "group w-full text-left px-3 py-2.5 rounded-xl border transition-all flex items-start gap-2",
                   selectedProjectId === proj.id
                     ? "border-brand-500/40 bg-brand-500/10"
                     : "border-surface-border bg-surface-hover hover:border-gray-600"
                 )}
               >
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center gap-2 min-w-0">
-                    <span className="text-base">{proj.emoji}</span>
-                    <span className="text-sm font-medium text-white truncate">{proj.label}</span>
-                  </span>
-                  <span className={cn(
-                    "text-xs px-1.5 py-0.5 rounded-full border shrink-0 ml-2",
-                    count > 0
-                      ? "bg-brand-500/20 text-brand-300 border-brand-500/30"
-                      : "text-gray-700 border-surface-border"
-                  )}>
-                    {count}
-                  </span>
-                </div>
-                {proj.description && (
-                  <p className="text-xs text-gray-600 mt-0.5 truncate">{proj.description}</p>
-                )}
-              </button>
+                <button
+                  onClick={() => {
+                    setSelectedProjectId(proj.id);
+                    setResult("");
+                    setPrompt("");
+                  }}
+                  className="flex-1 min-w-0 text-left"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className="text-base">{proj.emoji}</span>
+                      <span className="text-sm font-medium text-white truncate">{proj.label}</span>
+                    </span>
+                    <span className={cn(
+                      "text-xs px-1.5 py-0.5 rounded-full border shrink-0 ml-2",
+                      count > 0
+                        ? "bg-brand-500/20 text-brand-300 border-brand-500/30"
+                        : "text-gray-700 border-surface-border"
+                    )}>
+                      {count}
+                    </span>
+                  </div>
+                  {proj.description && (
+                    <p className="text-xs text-gray-600 mt-0.5 truncate">{proj.description}</p>
+                  )}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDeleteProject(proj); }}
+                  className="opacity-0 group-hover:opacity-100 p-1 rounded-lg text-gray-600 hover:text-red-400 hover:bg-red-500/10 transition-all shrink-0 mt-0.5"
+                  title="Delete project"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
             );
           })}
 
