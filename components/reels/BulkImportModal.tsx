@@ -83,7 +83,7 @@ export function BulkImportModal() {
     }
 
     if (valid.length === 0) {
-      setUrlError("No valid Instagram reel URLs found. Make sure each URL starts with https://www.instagram.com/reel/ or /p/");
+      setUrlError("No valid Instagram URLs found. Paste URLs starting with instagram.com/reel/ or instagram.com/p/");
       return;
     }
     if (invalid.length > 0) {

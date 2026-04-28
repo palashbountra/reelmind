@@ -37,7 +37,9 @@ export function extractReelId(url: string): string | null {
 }
 
 export function isValidInstagramUrl(url: string): boolean {
-  return /^https?:\/\/(www\.)?instagram\.com\/(reels?|p|tv)\//.test(url);
+  // Accepts reels (/reel/), posts (/p/), IGTV (/tv/), and saved collections
+  const clean = url.split("?")[0]; // strip query params
+  return /^https?:\/\/(www\.)?instagram\.com\/(reel|reels|p|tv)\//.test(clean);
 }
 
 // Legacy CATEGORY_CONFIG — now delegates to the dynamic system
