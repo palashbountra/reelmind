@@ -1,5 +1,7 @@
 // ── Projects — connect reels to your active work ─────────────────────────────
 
+import { setSetting } from "./settings";
+
 const CUSTOM_PROJECTS_KEY  = "reelmind_custom_projects";
 const DELETED_PROJECTS_KEY = "reelmind_deleted_projects"; // IDs of deleted default projects
 
@@ -68,6 +70,7 @@ export function loadCustomProjects(): Project[] {
 export function saveCustomProjects(projects: Project[]): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(CUSTOM_PROJECTS_KEY, JSON.stringify(projects));
+  setSetting(CUSTOM_PROJECTS_KEY, projects);
 }
 
 // ── Deleted default projects ──────────────────────────────────────────────────
@@ -83,6 +86,7 @@ function loadDeletedProjects(): string[] {
 function saveDeletedProjects(ids: string[]): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(DELETED_PROJECTS_KEY, JSON.stringify(ids));
+  setSetting(DELETED_PROJECTS_KEY, ids);
 }
 
 // ── Core API ──────────────────────────────────────────────────────────────────

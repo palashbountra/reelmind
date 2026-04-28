@@ -1,4 +1,5 @@
 import type { CustomCategory } from "./types";
+import { setSetting } from "./settings";
 
 const COLOR_PALETTE = [
   "bg-rose-500/20 text-rose-300 border-rose-500/30",
@@ -46,6 +47,7 @@ export function loadCustomCategories(): CustomCategory[] {
 export function saveCustomCategories(cats: CustomCategory[]): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(CUSTOM_KEY, JSON.stringify(cats));
+  setSetting(CUSTOM_KEY, cats);
 }
 
 // ── Deleted built-ins ─────────────────────────────────────────────────────────
@@ -61,6 +63,7 @@ export function loadDeletedBuiltins(): string[] {
 function saveDeletedBuiltins(ids: string[]): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(DELETED_KEY, JSON.stringify(ids));
+  setSetting(DELETED_KEY, ids);
 }
 
 export function deleteBuiltinCategory(id: string): void {
@@ -90,6 +93,7 @@ export function loadBuiltinOverrides(): BuiltinOverrides {
 export function saveBuiltinOverrides(overrides: BuiltinOverrides): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(OVERRIDE_KEY, JSON.stringify(overrides));
+  setSetting(OVERRIDE_KEY, overrides);
 }
 
 // ── Core API ──────────────────────────────────────────────────────────────────

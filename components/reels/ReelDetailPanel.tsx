@@ -2,16 +2,16 @@
 
 import { useEffect, useState } from "react";
 import {
-  X, ExternalLink, Star, Sparkles, CheckSquare, Edit3,
-  Heart, Calendar, Tag, FileText, Lightbulb, Check, Plus
+  X, ExternalLink, Sparkles, Edit3,
+  Heart, Calendar, Tag, FileText, Lightbulb, Check, Plus, Trash2, ChevronDown
 } from "lucide-react";
 import type { Reel, Task } from "@/lib/types";
 import { STATUS_CONFIG, formatDate, cn } from "@/lib/utils";
-import { getCategoryById } from "@/lib/categories";
-import { getAllProjects, getProjectById } from "@/lib/projects";
+import { getCategoryById, getAllCategories } from "@/lib/categories";
+import { getAllProjects } from "@/lib/projects";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
-import { updateReel, toggleFavourite } from "@/lib/db/reels";
+import { updateReel, toggleFavourite, deleteReel as dbDeleteReel } from "@/lib/db/reels";
 import { createTask, getTasks, toggleTask as dbToggleTask } from "@/lib/db/tasks";
 import { useAppStore } from "@/lib/store";
 import toast from "react-hot-toast";
@@ -22,16 +22,18 @@ interface ReelDetailPanelProps {
 }
 
 export function ReelDetailPanel({ reel, onClose }: ReelDetailPanelProps) {
-  const { updateReel: storeUpdate } = useAppStore();
+  const { updateReel: storeUpdate, removeReel, setSelectedReelId } = useAppStore();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [newTask, setNewTask] = useState("");
   const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState(reel.notes || "");
   const [activeTab, setActiveTab] = useState<"overview" | "ideas" | "tasks">("overview");
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
 
   const catConfig = getCategoryById(reel.category);
   const statusConfig = STATUS_CONFIG[reel.status];
   const allProjects = getAllProjects();
+  const allCategories = getAllCategories();
 
   useEffect(() => {
     getTasks(reel.id).then(setTasks).catch(console.error);
@@ -64,6 +66,22 @@ export function ReelDetailPanel({ reel, onClose }: ReelDetailPanelProps) {
     storeUpdate(reel.id, { project_tags: updated });
   }
 
+  async function handleCategoryChange(categoryId: string) {
+    await updateReel(reel.id, { category: categoryId });
+    storeUpdate(reel.id, { category: categoryId });
+    setShowCategoryPicker(false);
+    toast.success(`Moved to ${getCategoryById(categoryId).label}`);
+  }
+
+  async function handleDelete() {
+    if (!confirm(`Delete "${reel.title}"? This can't be undone.`)) return;
+    await dbDeleteReel(reel.id);
+    removeReel(reel.id);
+    setSelectedReelId(null);
+    onClose();
+    toast.success("Reel deleted");
+  }
+
   async function handleAddTask() {
     if (!newTask.trim()) return;
     try {
@@ -93,16 +111,49 @@ export function ReelDetailPanel({ reel, onClose }: ReelDetailPanelProps) {
       {/* Header */}
       <div className="flex items-start justify-between px-5 py-4 border-b border-surface-border">
         <div className="flex-1 pr-3">
-          <Badge className={cn(catConfig.color, "mb-2")}>
-            {catConfig.emoji} {catConfig.label}
-          </Badge>
+          {/* Category badge — click to change */}
+          <div className="relative inline-block mb-2">
+            <button
+              onClick={() => setShowCategoryPicker((v) => !v)}
+              className={cn("inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border transition-all hover:opacity-80", catConfig.color)}
+            >
+              {catConfig.emoji} {catConfig.label} <ChevronDown size={10} />
+            </button>
+            {showCategoryPicker && (
+              <div className="absolute top-7 left-0 z-20 bg-surface-card border border-surface-border rounded-xl shadow-xl p-2 grid grid-cols-2 gap-1 w-52 max-h-60 overflow-y-auto">
+                {allCategories.map((cat) => (
+                  <button
+                    key={cat.id}
+                    onClick={() => handleCategoryChange(cat.id)}
+                    className={cn(
+                      "flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs text-left transition-all",
+                      reel.category === cat.id
+                        ? "bg-brand-500/20 text-brand-300"
+                        : "text-gray-400 hover:bg-surface-hover hover:text-white"
+                    )}
+                  >
+                    <span>{cat.emoji}</span> <span className="truncate">{cat.label}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
           <h2 className="font-semibold text-white text-sm leading-snug line-clamp-2">
             {reel.title}
           </h2>
         </div>
-        <button onClick={onClose} className="p-2 rounded-xl text-gray-500 hover:text-white hover:bg-surface-hover transition-all shrink-0">
-          <X size={16} />
-        </button>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            onClick={handleDelete}
+            className="p-2 rounded-xl text-gray-600 hover:text-red-400 hover:bg-red-500/10 transition-all"
+            title="Delete reel"
+          >
+            <Trash2 size={15} />
+          </button>
+          <button onClick={onClose} className="p-2 rounded-xl text-gray-500 hover:text-white hover:bg-surface-hover transition-all">
+            <X size={16} />
+          </button>
+        </div>
       </div>
 
       {/* Quick actions */}
