@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   X, ExternalLink, Sparkles, Edit3,
-  Heart, Calendar, Tag, FileText, Lightbulb, Check, Plus, Trash2, ChevronDown
+  Heart, Calendar, Tag, FileText, Lightbulb, Check, Plus, Trash2, ChevronDown, CheckSquare
 } from "lucide-react";
 import type { Reel, Task } from "@/lib/types";
 import { STATUS_CONFIG, formatDate, cn } from "@/lib/utils";
