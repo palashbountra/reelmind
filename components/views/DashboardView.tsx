@@ -6,6 +6,7 @@ import { useAppStore } from "@/lib/store";
 import { getReels, deleteReel as dbDeleteReel } from "@/lib/db/reels";
 import { ReelCard } from "@/components/reels/ReelCard";
 import { ReelDetailPanel } from "@/components/reels/ReelDetailPanel";
+import { ReelPlayer } from "@/components/reels/ReelPlayer";
 import { AutoOrganiserModal } from "@/components/AutoOrganiserModal";
 import { STATUS_CONFIG, cn } from "@/lib/utils";
 import { getCategoryById } from "@/lib/categories";
@@ -27,6 +28,7 @@ export function DashboardView() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [deleting, setDeleting] = useState(false);
   const [autoOrganiserOpen, setAutoOrganiserOpen] = useState(false);
+  const [playingReel, setPlayingReel] = useState<import("@/lib/types").Reel | null>(null);
 
   const toggleId = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -251,12 +253,12 @@ export function DashboardView() {
             {loading ? (
               <div className={cn(
                 gridMode === "grid"
-                  ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+                  ? "grid grid-cols-2 lg:grid-cols-3 gap-4"
                   : "flex flex-col gap-3"
               )}>
                 {Array.from({ length: 8 }).map((_, i) => (
                   <div key={i} className="bg-surface-card border border-surface-border rounded-2xl overflow-hidden animate-pulse">
-                    <div className="aspect-[9/16] max-h-52 bg-surface-hover" />
+                    <div className="aspect-[9/16] bg-surface-hover" />
                     <div className="p-3 space-y-2">
                       <div className="h-3 bg-surface-hover rounded-full w-3/4" />
                       <div className="h-3 bg-surface-hover rounded-full w-1/2" />
@@ -273,7 +275,7 @@ export function DashboardView() {
             ) : (
               <div className={cn(
                 gridMode === "grid"
-                  ? "grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+                  ? "grid grid-cols-2 lg:grid-cols-3 gap-4"
                   : "flex flex-col gap-3"
               )}>
                 {filtered.map((reel) => (
@@ -282,6 +284,7 @@ export function DashboardView() {
                       key={reel.id}
                       reel={reel}
                       onClick={() => setSelectedReelId(reel.id)}
+                      onPlay={() => setPlayingReel(reel)}
                       selectMode={selectMode}
                       isSelected={selectedIds.has(reel.id)}
                       onSelect={() => toggleId(reel.id)}
@@ -335,6 +338,14 @@ export function DashboardView() {
         open={autoOrganiserOpen}
         onClose={() => setAutoOrganiserOpen(false)}
       />
+
+      {/* In-app reel player */}
+      {playingReel && (
+        <ReelPlayer
+          reel={playingReel}
+          onClose={() => setPlayingReel(null)}
+        />
+      )}
     </>
   );
 }

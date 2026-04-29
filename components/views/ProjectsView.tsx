@@ -4,14 +4,15 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   Sparkles, Send, FolderOpen, Plus, Loader2,
   RefreshCw, Copy, Check, Lightbulb, Trash2,
-  FileText, ChevronDown, ChevronUp,
+  FileText, ChevronDown, ChevronUp, Download,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import {
   getAllProjects, loadCustomProjects, saveCustomProjects,
   createProject, deleteProject, getProjectPlan, setProjectPlan,
 } from "@/lib/projects";
-import { getCategoryById } from "@/lib/categories";
+import { getCategoryById, getAllCategories } from "@/lib/categories";
+import { updateReel } from "@/lib/db/reels";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
 import type { Project } from "@/lib/projects";
@@ -27,7 +28,7 @@ const PROJECT_PROMPTS = [
 ];
 
 export function ProjectsView() {
-  const { reels, setBulkImportOpen } = useAppStore();
+  const { reels, setBulkImportOpen, updateReel: storeUpdate } = useAppStore();
   const [projects, setProjects] = useState<Project[]>(getAllProjects);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
 
@@ -42,6 +43,14 @@ export function ProjectsView() {
   const [planSaving, setPlanSaving] = useState(false);
   const [planOpen, setPlanOpen] = useState(true);
   const planSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Import from categories state
+  const [importOpen, setImportOpen] = useState(false);
+  const [importCategoryId, setImportCategoryId] = useState<string>("all");
+  const [importSelectedIds, setImportSelectedIds] = useState<Set<string>>(new Set());
+  const [importing, setImporting] = useState(false);
+
+  const allCategories = getAllCategories();
 
   // Add project state
   const [addingProject, setAddingProject] = useState(false);
@@ -64,6 +73,17 @@ export function ProjectsView() {
       (r) => r.status !== "archived" && r.project_tags?.includes(selectedProjectId)
     );
   }, [reels, selectedProjectId]);
+
+  // Reels that can be imported: not archived, not already tagged to this project
+  const importCandidates = useMemo(() => {
+    if (!selectedProjectId) return [];
+    return reels.filter((r) => {
+      if (r.status === "archived") return false;
+      if ((r.project_tags ?? []).includes(selectedProjectId)) return false;
+      if (importCategoryId === "all") return true;
+      return r.category === importCategoryId || (r.extra_categories ?? []).includes(importCategoryId);
+    });
+  }, [reels, selectedProjectId, importCategoryId]);
 
   function countReels(projectId: string) {
     return reels.filter(
@@ -138,6 +158,33 @@ export function ProjectsView() {
     handlePlanChange(appended);
     setPlanOpen(true);
     toast.success("Added to project plan");
+  }
+
+  async function handleImportReels() {
+    if (importSelectedIds.size === 0 || !selectedProjectId) return;
+    setImporting(true);
+    try {
+      await Promise.all(
+        Array.from(importSelectedIds).map(async (reelId) => {
+          const reel = reels.find((r) => r.id === reelId);
+          if (!reel) return;
+          const current = new Set(reel.project_tags ?? []);
+          current.add(selectedProjectId);
+          const next = Array.from(current);
+          await updateReel(reelId, { project_tags: next });
+          storeUpdate(reelId, { project_tags: next });
+        })
+      );
+      toast.success(
+        `${importSelectedIds.size} reel${importSelectedIds.size !== 1 ? "s" : ""} added to ${selectedProject?.label}`
+      );
+      setImportSelectedIds(new Set());
+      setImportOpen(false);
+    } catch {
+      toast.error("Failed to import some reels");
+    } finally {
+      setImporting(false);
+    }
   }
 
   function handleDeleteProject(proj: Project) {
@@ -346,6 +393,133 @@ export function ProjectsView() {
                     <p className="text-xs text-gray-600 mt-1.5">
                       Auto-saved · Markdown supported · AI synthesis appended here automatically
                     </p>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Import from Categories ──────────────────────── */}
+              <div className="bg-surface-card border border-surface-border rounded-2xl overflow-hidden">
+                <button
+                  onClick={() => { setImportOpen((v) => !v); setImportSelectedIds(new Set()); }}
+                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-surface-hover transition-all"
+                >
+                  <div className="flex items-center gap-2">
+                    <Download size={14} className="text-violet-400" />
+                    <span className="text-sm font-medium text-white">Import from Categories</span>
+                    <span className="text-xs text-gray-600">
+                      Tag reels from any category into this project
+                    </span>
+                  </div>
+                  {importOpen ? <ChevronUp size={14} className="text-gray-500" /> : <ChevronDown size={14} className="text-gray-500" />}
+                </button>
+
+                {importOpen && (
+                  <div className="px-4 pb-4 space-y-3 border-t border-surface-border">
+                    {/* Category selector */}
+                    <div className="flex items-center gap-2 pt-3 flex-wrap">
+                      <span className="text-xs text-gray-500 shrink-0">Filter by category:</span>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          onClick={() => { setImportCategoryId("all"); setImportSelectedIds(new Set()); }}
+                          className={cn(
+                            "text-xs px-2.5 py-1 rounded-full border transition-all",
+                            importCategoryId === "all"
+                              ? "bg-brand-500/20 border-brand-500/50 text-brand-300"
+                              : "border-surface-border text-gray-500 hover:border-gray-600 hover:text-gray-300"
+                          )}
+                        >
+                          All
+                        </button>
+                        {allCategories.map((cat) => (
+                          <button
+                            key={cat.id}
+                            onClick={() => { setImportCategoryId(cat.id); setImportSelectedIds(new Set()); }}
+                            className={cn(
+                              "text-xs px-2.5 py-1 rounded-full border transition-all",
+                              importCategoryId === cat.id
+                                ? "bg-brand-500/20 border-brand-500/50 text-brand-300"
+                                : "border-surface-border text-gray-500 hover:border-gray-600 hover:text-gray-300"
+                            )}
+                          >
+                            {cat.emoji} {cat.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Reel list with checkboxes */}
+                    {importCandidates.length === 0 ? (
+                      <p className="text-xs text-gray-600 py-2 text-center">
+                        {importCategoryId === "all"
+                          ? "All reels are already in this project"
+                          : "No reels in this category to import"}
+                      </p>
+                    ) : (
+                      <>
+                        <div className="flex items-center justify-between">
+                          <button
+                            onClick={() => {
+                              if (importSelectedIds.size === importCandidates.length) {
+                                setImportSelectedIds(new Set());
+                              } else {
+                                setImportSelectedIds(new Set(importCandidates.map((r) => r.id)));
+                              }
+                            }}
+                            className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
+                          >
+                            {importSelectedIds.size === importCandidates.length ? "Deselect all" : `Select all (${importCandidates.length})`}
+                          </button>
+                          {importSelectedIds.size > 0 && (
+                            <span className="text-xs text-gray-500">{importSelectedIds.size} selected</span>
+                          )}
+                        </div>
+
+                        <div className="max-h-56 overflow-y-auto space-y-1 pr-1">
+                          {importCandidates.map((reel) => {
+                            const catConfig = getCategoryById(reel.category);
+                            const selected = importSelectedIds.has(reel.id);
+                            return (
+                              <button
+                                key={reel.id}
+                                onClick={() => {
+                                  const next = new Set(importSelectedIds);
+                                  next.has(reel.id) ? next.delete(reel.id) : next.add(reel.id);
+                                  setImportSelectedIds(next);
+                                }}
+                                className={cn(
+                                  "w-full flex items-center gap-2.5 px-3 py-2 rounded-xl border text-left transition-all",
+                                  selected
+                                    ? "bg-brand-500/10 border-brand-500/40"
+                                    : "bg-surface-hover border-surface-border hover:border-gray-600"
+                                )}
+                              >
+                                <div className={cn(
+                                  "w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all",
+                                  selected ? "bg-brand-500 border-brand-500" : "border-surface-border"
+                                )}>
+                                  {selected && <Check size={9} className="text-white" strokeWidth={3} />}
+                                </div>
+                                <span className="text-base shrink-0">{catConfig.emoji}</span>
+                                <span className="text-sm text-gray-300 truncate flex-1">{reel.title}</span>
+                                {reel.ai_summary && <Sparkles size={11} className="text-brand-400 shrink-0" />}
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        <button
+                          onClick={handleImportReels}
+                          disabled={importSelectedIds.size === 0 || importing}
+                          className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-gradient-to-r from-violet-600 to-brand-500 text-white text-sm font-medium rounded-xl hover:from-violet-500 hover:to-brand-400 transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg shadow-violet-500/20"
+                        >
+                          {importing ? (
+                            <><Loader2 size={14} className="animate-spin" /> Importing…</>
+                          ) : (
+                            <><Download size={14} /> Add {importSelectedIds.size > 0 ? `${importSelectedIds.size} reel${importSelectedIds.size !== 1 ? "s" : ""}` : "selected reels"} to {selectedProject?.label}</>
+                          )}
+                        </button>
+                      </>
+                    )}
                   </div>
                 )}
               </div>

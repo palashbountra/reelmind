@@ -1,14 +1,14 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import {
-  Sparkles, Send, Lightbulb, RefreshCw, Copy, Check,
+  Sparkles, Send, Lightbulb, Copy, Check,
   Loader2, CheckSquare, FolderOpen, ChevronDown, ChevronUp,
-  MessageSquare, Trash2,
+  Trash2, Search,
 } from "lucide-react";
 import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { getCategoryById } from "@/lib/categories";
+import { getAllCategories } from "@/lib/categories";
 import { getAllProjects, setProjectPlan, getProjectPlan } from "@/lib/projects";
 import type { Reel } from "@/lib/types";
 import type { Project } from "@/lib/projects";
@@ -37,13 +37,74 @@ export function IdeateView() {
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectorOpen, setSelectorOpen] = useState(true);
   const [saveToProjectOpen, setSaveToProjectOpen] = useState<string | null>(null); // message id
   const [projects] = useState<Project[]>(getAllProjects);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const [reelSearch, setReelSearch] = useState("");
+  const [collapsedCategories, setCollapsedCategories] = useState<Set<string>>(new Set());
+
   const reelsWithContent = reels.filter((r) => r.status !== "archived");
+
+  // Search-filtered reels
+  const filteredReels = useMemo(() => {
+    if (!reelSearch.trim()) return reelsWithContent;
+    const q = reelSearch.toLowerCase();
+    return reelsWithContent.filter(
+      (r) =>
+        r.title.toLowerCase().includes(q) ||
+        (r.description?.toLowerCase().includes(q) ?? false) ||
+        (r.ai_summary?.toLowerCase().includes(q) ?? false) ||
+        r.tags.some((t) => t.toLowerCase().includes(q))
+    );
+  }, [reelsWithContent, reelSearch]);
+
+  // Group filtered reels by all their categories
+  const categoryGroups = useMemo(() => {
+    const allCats = getAllCategories();
+    const groups = new Map<string, { cat: ReturnType<typeof getAllCategories>[0]; reels: Reel[] }>();
+
+    allCats.forEach((cat) => groups.set(cat.id, { cat, reels: [] }));
+
+    filteredReels.forEach((reel) => {
+      const catIds = Array.from(
+        new Set([reel.category, ...(reel.extra_categories ?? [])])
+      );
+      catIds.forEach((catId) => {
+        if (groups.has(catId)) {
+          groups.get(catId)!.reels.push(reel);
+        }
+      });
+    });
+
+    // Only return groups that have reels, sorted by count desc
+    return Array.from(groups.values())
+      .filter((g) => g.reels.length > 0)
+      .sort((a, b) => b.reels.length - a.reels.length);
+  }, [filteredReels]);
+
+  function toggleCategory(catId: string) {
+    setCollapsedCategories((prev) => {
+      const next = new Set(prev);
+      next.has(catId) ? next.delete(catId) : next.add(catId);
+      return next;
+    });
+  }
+
+  function selectAllInCategory(catReels: Reel[]) {
+    const ids = catReels.map((r) => r.id);
+    const allSelected = ids.every((id) => selectedIds.has(id));
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allSelected) {
+        ids.forEach((id) => next.delete(id));
+      } else {
+        ids.forEach((id) => next.add(id));
+      }
+      return next;
+    });
+  }
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -153,49 +214,126 @@ export function IdeateView() {
 
   return (
     <div className="flex h-full overflow-hidden">
-      {/* Left: reel selector */}
+      {/* Left: reel selector — category-grouped */}
       <div className="w-72 shrink-0 border-r border-surface-border flex flex-col">
-        <div className="px-4 py-3 border-b border-surface-border">
-          <button
-            onClick={() => setSelectorOpen((v) => !v)}
-            className="w-full flex items-center justify-between"
-          >
+        {/* Header */}
+        <div className="px-4 pt-3 pb-2 border-b border-surface-border space-y-2">
+          <div className="flex items-center justify-between">
             <h2 className="font-semibold text-white text-sm flex items-center gap-2">
-              <Lightbulb size={16} className="text-brand-400" />
-              Select Reels
+              <Lightbulb size={15} className="text-brand-400" />
+              Reels
             </h2>
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-500">{selectedIds.size}/{reelsWithContent.length}</span>
-              {selectorOpen ? <ChevronUp size={13} className="text-gray-500" /> : <ChevronDown size={13} className="text-gray-500" />}
-            </div>
-          </button>
-          {selectorOpen && (
-            <div className="flex gap-2 mt-1.5">
-              <button onClick={selectAll} className="text-xs text-brand-400 hover:text-brand-300">All</button>
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-gray-600">{selectedIds.size} selected</span>
+              <button onClick={selectAll} className="text-brand-400 hover:text-brand-300 transition-colors">All</button>
               <span className="text-gray-700">·</span>
-              <button onClick={selectNone} className="text-xs text-gray-500 hover:text-gray-300">None</button>
+              <button onClick={selectNone} className="text-gray-600 hover:text-gray-400 transition-colors">None</button>
             </div>
-          )}
+          </div>
+          {/* Search */}
+          <div className="relative">
+            <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-600" />
+            <input
+              type="text"
+              value={reelSearch}
+              onChange={(e) => setReelSearch(e.target.value)}
+              placeholder="Search reels…"
+              className="w-full pl-7 pr-3 py-1.5 bg-surface-hover border border-surface-border rounded-lg text-xs text-white placeholder:text-gray-600 outline-none focus:border-brand-500/40 transition-all"
+            />
+          </div>
         </div>
 
-        {selectorOpen && (
-          <div className="flex-1 overflow-y-auto px-3 py-3 space-y-1.5">
-            {reelsWithContent.length === 0 ? (
-              <p className="text-xs text-gray-600 text-center py-8">
-                No reels saved yet. Add some from the Dashboard.
-              </p>
-            ) : (
-              reelsWithContent.map((reel) => (
-                <ReelSelectCard
-                  key={reel.id}
-                  reel={reel}
-                  selected={selectedIds.has(reel.id)}
-                  onToggle={() => toggleReel(reel.id)}
-                />
-              ))
-            )}
-          </div>
-        )}
+        {/* Category groups */}
+        <div className="flex-1 overflow-y-auto py-2">
+          {reelsWithContent.length === 0 ? (
+            <p className="text-xs text-gray-600 text-center py-8 px-4">
+              No reels saved yet. Add some from the Dashboard.
+            </p>
+          ) : categoryGroups.length === 0 ? (
+            <p className="text-xs text-gray-600 text-center py-8 px-4">
+              No reels match &quot;{reelSearch}&quot;
+            </p>
+          ) : (
+            categoryGroups.map(({ cat, reels: catReels }) => {
+              const isCollapsed = collapsedCategories.has(cat.id);
+              const allInCatSelected = catReels.every((r) => selectedIds.has(r.id));
+              const someInCatSelected = catReels.some((r) => selectedIds.has(r.id));
+
+              return (
+                <div key={cat.id} className="mb-1">
+                  {/* Category header */}
+                  <div className="flex items-center justify-between px-3 py-1.5">
+                    <button
+                      onClick={() => toggleCategory(cat.id)}
+                      className="flex items-center gap-1.5 flex-1 min-w-0 text-left group"
+                    >
+                      <span className="text-sm">{cat.emoji}</span>
+                      <span className="text-xs font-semibold text-gray-400 group-hover:text-gray-300 truncate transition-colors">
+                        {cat.label}
+                      </span>
+                      <span className="text-xs text-gray-700 tabular-nums shrink-0">({catReels.length})</span>
+                      {isCollapsed
+                        ? <ChevronDown size={11} className="text-gray-700 shrink-0" />
+                        : <ChevronUp size={11} className="text-gray-700 shrink-0" />
+                      }
+                    </button>
+                    <button
+                      onClick={() => selectAllInCategory(catReels)}
+                      className={cn(
+                        "text-[10px] px-2 py-0.5 rounded-full border transition-all shrink-0 ml-1",
+                        allInCatSelected
+                          ? "bg-brand-500/20 border-brand-500/40 text-brand-300"
+                          : someInCatSelected
+                          ? "border-brand-500/30 text-brand-400 hover:bg-brand-500/10"
+                          : "border-surface-border text-gray-600 hover:text-gray-400 hover:border-gray-600"
+                      )}
+                    >
+                      {allInCatSelected ? "✓ all" : "select all"}
+                    </button>
+                  </div>
+
+                  {/* Reel list */}
+                  {!isCollapsed && (
+                    <div className="px-2 space-y-0.5">
+                      {catReels.map((reel) => (
+                        <button
+                          key={reel.id}
+                          onClick={() => toggleReel(reel.id)}
+                          className={cn(
+                            "w-full text-left px-2.5 py-2 rounded-lg border transition-all flex items-start gap-2",
+                            selectedIds.has(reel.id)
+                              ? "border-brand-500/30 bg-brand-500/10"
+                              : "border-transparent hover:bg-surface-hover hover:border-surface-border"
+                          )}
+                        >
+                          <div className={cn(
+                            "w-3.5 h-3.5 rounded border flex items-center justify-center shrink-0 mt-0.5 transition-all",
+                            selectedIds.has(reel.id)
+                              ? "bg-brand-500 border-brand-500"
+                              : "border-gray-600"
+                          )}>
+                            {selectedIds.has(reel.id) && <Check size={8} className="text-white" strokeWidth={3} />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium text-gray-300 leading-snug line-clamp-2">
+                              {reel.title}
+                            </p>
+                            {reel.ai_summary && (
+                              <p className="text-[10px] text-gray-600 line-clamp-1 mt-0.5">{reel.ai_summary}</p>
+                            )}
+                          </div>
+                          {reel.ai_summary && (
+                            <Sparkles size={9} className="text-brand-500/60 shrink-0 mt-0.5" />
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </div>
       </div>
 
       {/* Right: chat workspace */}
@@ -422,50 +560,3 @@ function MarkdownContent({ content }: { content: string }) {
   );
 }
 
-function ReelSelectCard({
-  reel,
-  selected,
-  onToggle,
-}: {
-  reel: Reel;
-  selected: boolean;
-  onToggle: () => void;
-}) {
-  const catConfig = getCategoryById(reel.category);
-  return (
-    <button
-      onClick={onToggle}
-      className={cn(
-        "w-full text-left p-3 rounded-xl border transition-all",
-        selected
-          ? "border-brand-500/40 bg-brand-500/10"
-          : "border-surface-border bg-surface-hover hover:border-gray-600"
-      )}
-    >
-      <div className="flex items-start gap-2.5">
-        <div className={cn(
-          "w-4 h-4 rounded-md border shrink-0 mt-0.5 flex items-center justify-center transition-all",
-          selected ? "bg-brand-500 border-brand-500 text-white" : "border-surface-border"
-        )}>
-          {selected && <Check size={10} />}
-        </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 mb-0.5">
-            <span className="text-xs">{catConfig.emoji}</span>
-            <span className="text-xs font-medium text-white truncate">{reel.title}</span>
-          </div>
-          {reel.ai_summary ? (
-            <p className="text-xs text-gray-500 line-clamp-2">{reel.ai_summary}</p>
-          ) : reel.description ? (
-            <p className="text-xs text-gray-600 line-clamp-2">{reel.description}</p>
-          ) : null}
-          {reel.ai_summary && (
-            <span className="inline-flex items-center gap-0.5 text-xs text-brand-400 mt-1">
-              <Sparkles size={9} /> AI
-            </span>
-          )}
-        </div>
-      </div>
-    </button>
-  );
-}
