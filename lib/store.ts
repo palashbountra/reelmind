@@ -40,6 +40,10 @@ interface AppState {
   pendingTaskTitle: string | null;
   setPendingTaskTitle: (title: string | null) => void;
 
+  // Cross-linking: Ideate → Projects auto-select
+  pendingProjectId: string | null;
+  setPendingProjectId: (id: string | null) => void;
+
   // Active view — owned here so any component can switch views
   activeView: "dashboard" | "ideate" | "tasks" | "projects";
   setActiveView: (v: "dashboard" | "ideate" | "tasks" | "projects") => void;
@@ -96,6 +100,9 @@ export const useAppStore = create<AppState>((set) => ({
 
   pendingTaskTitle: null,
   setPendingTaskTitle: (title) => set({ pendingTaskTitle: title }),
+
+  pendingProjectId: null,
+  setPendingProjectId: (id) => set({ pendingProjectId: id }),
 
   activeView: "dashboard",
   setActiveView: (v) => set({ activeView: v }),

@@ -10,6 +10,7 @@ import { useAppStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { getAllCategories } from "@/lib/categories";
 import { getAllProjects, setProjectPlan, getProjectPlan } from "@/lib/projects";
+import { updateReel } from "@/lib/db/reels";
 import type { Reel } from "@/lib/types";
 import type { Project } from "@/lib/projects";
 import toast from "react-hot-toast";
@@ -32,7 +33,7 @@ interface Message {
 }
 
 export function IdeateView() {
-  const { reels, setActiveView, setPendingTaskTitle } = useAppStore();
+  const { reels, setActiveView, setPendingTaskTitle, setPendingProjectId, updateReel: storeUpdate } = useAppStore();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
@@ -192,14 +193,35 @@ export function IdeateView() {
     toast.success("Switched to Tasks — title pre-filled!");
   }
 
-  function handleSaveToProject(messageId: string, projectId: string, content: string) {
+  async function handleSaveToProject(messageId: string, projectId: string, content: string) {
+    const proj = projects.find((p) => p.id === projectId);
+
+    // 1. Save AI response to project plan
     const existing = getProjectPlan(projectId);
     const separator = existing ? "\n\n---\n\n" : "";
     const timestamp = new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
-    const note = `${separator}### Ideate — ${timestamp}\n\n${content}`;
-    setProjectPlan(projectId, existing + note);
-    toast.success(`Saved to ${projects.find((p) => p.id === projectId)?.label ?? "project"}`);
+    setProjectPlan(projectId, existing + separator + `### Ideate — ${timestamp}\n\n${content}`);
+
+    // 2. Tag all currently selected reels to the project
+    const selectedReelsList = reelsWithContent.filter((r) => selectedIds.has(r.id));
+    if (selectedReelsList.length > 0) {
+      try {
+        await Promise.all(selectedReelsList.map(async (reel) => {
+          const current = new Set(reel.project_tags ?? []);
+          if (current.has(projectId)) return;
+          current.add(projectId);
+          const next = Array.from(current);
+          await updateReel(reel.id, { project_tags: next });
+          storeUpdate(reel.id, { project_tags: next });
+        }));
+      } catch { /* non-fatal */ }
+    }
+
+    // 3. Navigate to Projects and auto-select the project
+    setPendingProjectId(projectId);
+    setActiveView("projects");
     setSaveToProjectOpen(null);
+    toast.success(`Analysis + ${selectedReelsList.length} reel${selectedReelsList.length !== 1 ? "s" : ""} sent to ${proj?.label ?? "project"}`);
   }
 
   async function handleCopy(content: string) {
@@ -410,14 +432,14 @@ export function IdeateView() {
                         <button
                           onClick={() => setSaveToProjectOpen(saveToProjectOpen === msg.id ? null : msg.id)}
                           className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs text-gray-500 hover:text-violet-300 hover:bg-violet-500/10 transition-all"
-                          title="Save to project"
+                          title="Send analysis + reels to project"
                         >
                           <FolderOpen size={12} />
-                          <span className="hidden sm:inline">Save</span>
+                          <span className="hidden sm:inline">→ Project</span>
                         </button>
                         {saveToProjectOpen === msg.id && (
                           <div className="absolute right-0 top-full mt-1 w-52 bg-surface-card border border-surface-border rounded-xl shadow-xl z-20 overflow-hidden">
-                            <p className="text-xs text-gray-500 px-3 py-2 border-b border-surface-border">Save to project plan:</p>
+                            <p className="text-xs text-gray-500 px-3 py-2 border-b border-surface-border">Send analysis + tag reels to:</p>
                             {projects.length === 0 ? (
                               <p className="text-xs text-gray-600 px-3 py-2">No projects yet. Add one in Projects.</p>
                             ) : (
