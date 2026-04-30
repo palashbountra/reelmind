@@ -33,6 +33,11 @@ export function ReelCard({ reel, onClick, onPlay, selectMode, isSelected, onSele
   const allProjects = getAllProjects();
   const projectTags: string[] = reel.project_tags ?? [];
 
+  // Always use the proxy so we get a fresh thumbnail — stored URLs expire in ~24h
+  const thumbnailSrc = reel.url
+    ? `/api/thumbnail?url=${encodeURIComponent(reel.url)}`
+    : null;
+
   // All categories this reel belongs to (primary + extras)
   const allReelCategoryIds = Array.from(
     new Set([reel.category, ...(reel.extra_categories ?? [])].filter(Boolean))
@@ -120,11 +125,11 @@ export function ReelCard({ reel, onClick, onPlay, selectMode, isSelected, onSele
       {/* ── Full 9:16 Thumbnail ── */}
       <div className="relative aspect-[9/16] bg-surface-hover overflow-hidden">
 
-        {/* Thumbnail image — use plain img for reliable external URL loading */}
-        {reel.thumbnail_url && !imgError ? (
+        {/* Thumbnail — proxied through /api/thumbnail so the URL is always fresh */}
+        {thumbnailSrc && !imgError ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={reel.thumbnail_url}
+            src={thumbnailSrc}
             alt={reel.title}
             className="absolute inset-0 w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
             onError={() => setImgError(true)}
