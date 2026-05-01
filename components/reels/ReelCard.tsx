@@ -33,9 +33,13 @@ export function ReelCard({ reel, onClick, onPlay, selectMode, isSelected, onSele
   const allProjects = getAllProjects();
   const projectTags: string[] = reel.project_tags ?? [];
 
-  // Always use the proxy so we get a fresh thumbnail — stored URLs expire in ~24h
+  // Proxy through /api/thumbnail.
+  // Pass the stored CDN URL as `cached` so strategy-0 can serve it immediately
+  // for reels added < ~24 h ago; older reels fall through to live-fetch strategies.
   const thumbnailSrc = reel.url
-    ? `/api/thumbnail?url=${encodeURIComponent(reel.url)}`
+    ? `/api/thumbnail?url=${encodeURIComponent(reel.url)}${
+        reel.thumbnail_url ? `&cached=${encodeURIComponent(reel.thumbnail_url)}` : ""
+      }`
     : null;
 
   // All categories this reel belongs to (primary + extras)
